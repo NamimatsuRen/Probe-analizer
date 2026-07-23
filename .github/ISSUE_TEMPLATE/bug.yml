@@ -1,0 +1,37 @@
+name: 不具合
+description: 再現できる不具合や表示誤り
+title: "[Bug] "
+labels: ["type: bug"]
+body:
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: 起きたこと
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した結果
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: 使用データと環境
+      description: 個人情報・機密データは添付しないでください
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ
+      render: shell
