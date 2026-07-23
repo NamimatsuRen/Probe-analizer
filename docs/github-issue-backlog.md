@@ -2,6 +2,16 @@
 
 Notion「段階的GUI開発計画｜Level 1–2で土台を確立する」を、GitHubへ投入できる大きさへ分解したバックログ。
 
+## GitHub登録状況
+
+- 実装PR: [#1 Level 1: フォルダ起点のRawデータブラウザを追加](https://github.com/NamimatsuRen/Probe-analizer/pull/1)
+- 全体索引: [#67 段階的GUI開発 Level 0–8 Issue一覧](https://github.com/NamimatsuRen/Probe-analizer/issues/67)
+- Level 0: Epic [#2](https://github.com/NamimatsuRen/Probe-analizer/issues/2)、子Issue #3～#9
+- Level 1: Epic [#10](https://github.com/NamimatsuRen/Probe-analizer/issues/10)、子Issue #11～#40
+- Level 2: Epic [#41](https://github.com/NamimatsuRen/Probe-analizer/issues/41)、子Issue #42～#60
+- Level 3～8: Epic #61～#66
+- 2026-07-23時点で、細分化Issue 65件と索引Issue 1件を登録済み。
+
 ## 状態
 
 - `implemented-local`: 現在のブランチで実装済み。PR merge時にcloseする。
