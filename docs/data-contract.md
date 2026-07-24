@@ -91,6 +91,20 @@ x_physical = x_raw × scale × sign
 役割未割当は有効な状態である。フォルダ読込とRaw表示は、役割設定やJSONファイルがなくても
 完了できなければならない。
 
+## 役割設定の保存
+
+役割設定は選択測定フォルダの入力データではない。次の値を、OSが管理するアプリ設定へ
+folder pathとshot IDの組み合わせごとに保存する。
+
+- currentのseries ID、scale、sign、output unit
+- sweep voltageのseries ID、scale、sign、output unit
+
+測定フォルダへJSON、設定ファイル、隠しファイルを作らない。設定が存在しない状態、
+一方だけ割り当てた状態、両方未割当へ戻した状態はいずれも有効とする。
+
+保存済みseries IDが現在のcatalogに存在しない場合は、そのroleを未割当へ戻す。
+設定の読込・保存失敗はRawデータの読込失敗として扱わず、画面上の非致命的な警告とする。
+
 ## 時間軸の整合
 
 掃引電圧の時刻を基準軸とする。

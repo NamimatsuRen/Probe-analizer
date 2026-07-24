@@ -82,5 +82,22 @@ RawSeries
 - 解析用の電圧昇順配列は `Sweep.iv_voltage_v` / `iv_current_a` から取得する。
 - 分割条件の不備は空配列にせず、型付きの失敗理由として返す。
 
-この段階では役割割当UIと設定保存はまだ接続しない。したがって、フォルダを選ぶだけで
-Level 1のRaw閲覧ができる性質は変わらない。
+### 役割設定の保存境界
+
+役割割当UIは、選択中Raw系列とは別の `SeriesRoleAssignments` として状態管理する。
+
+```text
+RoleAssignmentPanel
+  └─ AppState.set_role_assignments()
+       └─ RoleAssignmentStore (application port)
+            └─ QSettingsRoleAssignmentStore (infrastructure)
+```
+
+- currentとsweep voltageは同じshot内の異なるseriesだけを選択できる。
+- 既定の追加倍率は旧コード互換値を表示するが、役割を選ぶまでは適用しない。
+- 保存keyは正規化したfolder pathとshot IDのhashで分離する。
+- 保存先はOSのアプリ設定であり、測定フォルダへJSONやsidecarを作らない。
+- 保存設定内のseriesが現在のfolderに存在しなければ、そのroleだけ未割当へ戻す。
+- 読込・保存エラーは役割パネル内へ表示し、Raw閲覧は継続する。
+
+この接続後も、役割を設定せずフォルダを選ぶだけでLevel 1のRaw閲覧ができる性質は変わらない。

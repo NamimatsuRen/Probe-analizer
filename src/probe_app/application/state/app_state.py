@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
 from probe_app.domain.models.catalog import FolderCatalog
+from probe_app.domain.models.series_role import SeriesRoleAssignments
 
 
 class LoadStatus(StrEnum):
@@ -23,6 +24,8 @@ class AppState:
     folder: Path | None = None
     catalog: FolderCatalog | None = None
     selected_series_id: str | None = None
+    role_assignment_shot_id: str | None = None
+    role_assignments: SeriesRoleAssignments = field(default_factory=SeriesRoleAssignments)
     message: str = "フォルダを選択してください"
 
     def start_loading(self, folder: Path) -> AppState:
@@ -32,6 +35,8 @@ class AppState:
             folder=folder,
             catalog=None,
             selected_series_id=None,
+            role_assignment_shot_id=None,
+            role_assignments=SeriesRoleAssignments(),
             message=f"{folder.name} を読み込んでいます…",
         )
 
@@ -43,6 +48,8 @@ class AppState:
                 folder=catalog.root,
                 catalog=catalog,
                 selected_series_id=None,
+                role_assignment_shot_id=None,
+                role_assignments=SeriesRoleAssignments(),
                 message="対応する測定データが見つかりませんでした",
             )
         first_id = catalog.series[0].series_id
@@ -56,6 +63,8 @@ class AppState:
             folder=catalog.root,
             catalog=catalog,
             selected_series_id=first_id,
+            role_assignment_shot_id=None,
+            role_assignments=SeriesRoleAssignments(),
             message=message,
         )
 
@@ -64,12 +73,41 @@ class AppState:
             raise ValueError(f"unknown series_id: {series_id}")
         return replace(self, selected_series_id=series_id)
 
+    def set_role_assignments(
+        self,
+        shot_id: str,
+        assignments: SeriesRoleAssignments,
+    ) -> AppState:
+        if self.catalog is None:
+            raise ValueError("a catalog is required before assigning series roles")
+        valid_ids = {
+            descriptor.series_id for descriptor in self.catalog.series_for_shot(shot_id)
+        }
+        if not valid_ids:
+            raise ValueError(f"unknown shot_id: {shot_id}")
+        invalid_ids = [
+            assignment.series_id
+            for assignment in assignments.items
+            if assignment.series_id not in valid_ids
+        ]
+        if invalid_ids:
+            raise ValueError(
+                f"role assignments are outside shot {shot_id}: {', '.join(invalid_ids)}"
+            )
+        return replace(
+            self,
+            role_assignment_shot_id=shot_id,
+            role_assignments=assignments,
+        )
+
     def fail(self, message: str) -> AppState:
         return replace(
             self,
             status=LoadStatus.ERROR,
             catalog=None,
             selected_series_id=None,
+            role_assignment_shot_id=None,
+            role_assignments=SeriesRoleAssignments(),
             message=message,
         )
 
@@ -79,5 +117,7 @@ class AppState:
             status=LoadStatus.CANCELLED,
             catalog=None,
             selected_series_id=None,
+            role_assignment_shot_id=None,
+            role_assignments=SeriesRoleAssignments(),
             message="読み込みをキャンセルしました",
         )
