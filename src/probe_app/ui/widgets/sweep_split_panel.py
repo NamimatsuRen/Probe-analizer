@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -48,6 +49,23 @@ class SweepSplitPanel(QWidget):
         self._sample_stop.setValue(500_000)
         self._sample_stop.setEnabled(False)
 
+        self._current_time_offset_ms = QDoubleSpinBox()
+        self._current_time_offset_ms.setObjectName("currentTimeOffsetMs")
+        self._current_time_offset_ms.setRange(-1_000.0, 1_000.0)
+        self._current_time_offset_ms.setDecimals(6)
+        self._current_time_offset_ms.setSingleStep(0.001)
+        self._current_time_offset_ms.setValue(0.0)
+        self._current_time_offset_ms.setSuffix(" ms")
+        self._current_time_offset_ms.setToolTip(
+            "currentの参照時刻を補正します。正の値ではSweep電圧より後のcurrentを使います。"
+        )
+        self._offset_help = QLabel(
+            "時間補正の符号：＋はSweep電圧時刻より後、−は前のcurrentを参照"
+        )
+        self._offset_help.setObjectName("currentTimeOffsetHelp")
+        self._offset_help.setWordWrap(True)
+        self._offset_help.setStyleSheet("color: #556070;")
+
         self._run_button = QPushButton("Sweep分割を実行")
         self._run_button.setObjectName("runSweepSplit")
         self._cancel_button = QPushButton("分割をキャンセル")
@@ -62,6 +80,7 @@ class SweepSplitPanel(QWidget):
         stop_row.addWidget(self._use_all_remaining)
         stop_row.addWidget(self._sample_stop, 1)
         form.addRow("終了sample", stop_row)
+        form.addRow("current時間補正", self._current_time_offset_ms)
 
         buttons = QHBoxLayout()
         buttons.addWidget(self._run_button)
@@ -70,6 +89,7 @@ class SweepSplitPanel(QWidget):
         group = QGroupBox("Sweep分割")
         group_layout = QVBoxLayout(group)
         group_layout.addLayout(form)
+        group_layout.addWidget(self._offset_help)
         group_layout.addLayout(buttons)
         group_layout.addWidget(self._status)
 
@@ -100,6 +120,12 @@ class SweepSplitPanel(QWidget):
         if parameters.sample_stop is not None:
             self._sample_stop.setValue(parameters.sample_stop)
 
+    def current_time_offset_s(self) -> float:
+        return self._current_time_offset_ms.value() / 1_000.0
+
+    def set_current_time_offset_s(self, offset_s: float) -> None:
+        self._current_time_offset_ms.setValue(offset_s * 1_000.0)
+
     def render_state(
         self,
         status: SweepRunStatus,
@@ -116,6 +142,7 @@ class SweepSplitPanel(QWidget):
             self._points_per_cycle,
             self._sample_start,
             self._use_all_remaining,
+            self._current_time_offset_ms,
         ):
             control.setEnabled(not self._running)
         self._sample_stop.setEnabled(

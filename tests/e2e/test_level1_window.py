@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
 from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QTabWidget
 
 from probe_app.application.state import LoadStatus, SweepRunStatus
 from probe_app.application.use_cases import SweepSplitResult
@@ -23,6 +24,10 @@ def test_level1_window_starts(qtbot: object) -> None:
 
     assert window.windowTitle() == "Probe Analizer — Rawデータブラウザ"
     assert window.centralWidget() is not None
+    assert window._details_tabs.tabText(0) == "Raw波形"  # noqa: SLF001
+    assert window._details_tabs.widget(0) is window._raw_plot  # noqa: SLF001
+    assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
+    assert isinstance(window._details_tabs, QTabWidget)  # noqa: SLF001
 
 
 def test_level1_window_loads_folder_and_first_series(qtbot: object, tmp_path: Path) -> None:
