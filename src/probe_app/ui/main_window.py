@@ -32,6 +32,7 @@ from probe_app.ui.widgets import (
     RoleAssignmentPanel,
     StatusPanel,
     SweepBrowser,
+    SweepIVPlot,
     SweepSplitPanel,
 )
 from probe_app.ui.workers import FolderScanTask, SeriesLoadTask, SweepSplitTask
@@ -73,6 +74,7 @@ class MainWindow(QMainWindow):
         self._metadata = MetadataPanel()
         self._sweep_panel = SweepSplitPanel()
         self._sweep_browser = SweepBrowser()
+        self._sweep_iv_plot = SweepIVPlot()
         self._details_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
@@ -97,6 +99,7 @@ class MainWindow(QMainWindow):
         self._details_tabs.addTab(self._metadata, "Raw情報")
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
         self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
+        self._details_tabs.addTab(self._sweep_iv_plot, "I–V")
         right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 2)
@@ -414,6 +417,7 @@ class MainWindow(QMainWindow):
     def _sweep_selected(self, sweep_object: object) -> None:
         if isinstance(sweep_object, Sweep):
             self._raw_plot.highlight_sweep(sweep_object)
+            self._sweep_iv_plot.show_sweep(sweep_object)
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._load_generation:
@@ -514,8 +518,12 @@ class MainWindow(QMainWindow):
                 or highlighted_sweep.sweep_id != selected_sweep.sweep_id
             ):
                 self._raw_plot.highlight_sweep(selected_sweep)
+            plotted_sweep = self._sweep_iv_plot.selected_sweep
+            if plotted_sweep is None or plotted_sweep.sweep_id != selected_sweep.sweep_id:
+                self._sweep_iv_plot.show_sweep(selected_sweep)
         else:
             self._raw_plot.clear_sweep_highlight()
+            self._sweep_iv_plot.clear_plot(self._state.sweep_message)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
