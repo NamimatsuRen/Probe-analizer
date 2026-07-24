@@ -223,11 +223,20 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert first_sweep_item.text(4) == "4"
     assert window._raw_plot.highlighted_sweep == window._state.sweeps[0]  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
+    assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
+    assert window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._previous_sweep_action.shortcut().toString() == "Alt+Left"
+    )
+    assert window._next_sweep_action.shortcut().toString() == "Alt+Right"  # noqa: SLF001
 
     second_sweep = window._state.sweeps[1]  # noqa: SLF001
-    assert window._sweep_browser.select_sweep(second_sweep.sweep_id)  # noqa: SLF001
+    window._next_sweep_action.trigger()  # noqa: SLF001
+    assert window._sweep_browser.selected_sweep == second_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == second_sweep  # noqa: SLF001
+    assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
+    assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     np.testing.assert_allclose(  # noqa: SLF001
         window._sweep_iv_plot.displayed_voltage_v,
         second_sweep.iv_voltage_v,
@@ -245,6 +254,21 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
         f"sample {second_sweep.source_start_index:,}"
         in window._raw_plot.highlight_description  # noqa: SLF001
     )
+    last_sweep = window._state.sweeps[-1]  # noqa: SLF001
+    assert window._sweep_browser.select_sweep(last_sweep.sweep_id)  # noqa: SLF001
+    assert window._raw_plot.highlighted_sweep == last_sweep  # noqa: SLF001
+    assert window._sweep_iv_plot.selected_sweep == last_sweep  # noqa: SLF001
+    assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
+    assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
+    window._next_sweep_action.trigger()  # noqa: SLF001
+    assert window._sweep_browser.selected_sweep == last_sweep  # noqa: SLF001
+
+    window._previous_sweep_action.trigger()  # noqa: SLF001
+    penultimate_sweep = window._state.sweeps[-2]  # noqa: SLF001
+    assert window._sweep_browser.selected_sweep == penultimate_sweep  # noqa: SLF001
+    assert window._raw_plot.highlighted_sweep == penultimate_sweep  # noqa: SLF001
+    assert window._sweep_iv_plot.selected_sweep == penultimate_sweep  # noqa: SLF001
+
     stale_generation = window._sweep_generation  # noqa: SLF001
     stale_result = SweepSplitResult(
         sweeps=window._state.sweeps,  # noqa: SLF001
@@ -261,6 +285,8 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep is None  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep is None  # noqa: SLF001
+    assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
+    assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001

@@ -6,6 +6,7 @@ import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
     QTreeWidget,
@@ -33,6 +34,10 @@ class SweepBrowser(QWidget):
         self._summary.setObjectName("sweepSummary")
         self._summary.setWordWrap(True)
 
+        self._position = QLabel("0 / 0")
+        self._position.setObjectName("sweepPosition")
+        self._position.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
         self._tree = QTreeWidget()
         self._tree.setObjectName("sweepBrowser")
         self._tree.setHeaderLabels(["No.", "方向", "開始 [s]", "終了 [s]", "点数", "電圧範囲 [V]"])
@@ -51,7 +56,10 @@ class SweepBrowser(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(self._summary)
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(self._summary, 1)
+        header_layout.addWidget(self._position)
+        layout.addLayout(header_layout)
         layout.addWidget(self._tree, 1)
 
     @property
@@ -65,10 +73,29 @@ class SweepBrowser(QWidget):
             return None
         return self._sweeps.get(item.data(0, SWEEP_ID_ROLE))
 
+    @property
+    def selected_index(self) -> int | None:
+        item: QTreeWidgetItem | None = self._tree.currentItem()
+        if item is None:
+            return None
+        index = self._tree.indexOfTopLevelItem(item)
+        return index if index >= 0 else None
+
+    @property
+    def can_select_previous(self) -> bool:
+        index = self.selected_index
+        return index is not None and index > 0
+
+    @property
+    def can_select_next(self) -> bool:
+        index = self.selected_index
+        return index is not None and index < self._tree.topLevelItemCount() - 1
+
     def clear_sweeps(self, message: str = "Sweep分割を実行すると一覧を表示します") -> None:
         self._sweeps.clear()
         self._tree.clear()
         self._summary.setText(message)
+        self._update_position()
 
     def set_sweeps(self, sweeps: Iterable[Sweep], *, message: str = "") -> None:
         sweep_items = tuple(sweeps)
@@ -106,6 +133,8 @@ class SweepBrowser(QWidget):
         self._summary.setText(summary)
         if first_item is not None:
             self._tree.setCurrentItem(first_item)
+        else:
+            self._update_position()
 
     def render_state(
         self,
@@ -138,10 +167,36 @@ class SweepBrowser(QWidget):
                 return True
         return False
 
+    def select_previous(self) -> bool:
+        return self._move_selection(-1)
+
+    def select_next(self) -> bool:
+        return self._move_selection(1)
+
+    def _move_selection(self, offset: int) -> bool:
+        index = self.selected_index
+        if index is None:
+            return False
+        target_index = index + offset
+        if not 0 <= target_index < self._tree.topLevelItemCount():
+            return False
+        target = self._tree.topLevelItem(target_index)
+        if target is None:
+            return False
+        self._tree.setCurrentItem(target)
+        self._tree.scrollToItem(target)
+        return True
+
     def _emit_selection(self) -> None:
+        self._update_position()
         sweep = self.selected_sweep
         if sweep is not None:
             self.sweep_selected.emit(sweep)
+
+    def _update_position(self) -> None:
+        index = self.selected_index
+        current = 0 if index is None else index + 1
+        self._position.setText(f"{current:,} / {self.sweep_count:,}")
 
 
 def _direction_label(direction: SweepDirection) -> str:

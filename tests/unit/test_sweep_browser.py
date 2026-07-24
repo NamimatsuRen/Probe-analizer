@@ -75,3 +75,46 @@ def test_sweep_browser_emits_selection_and_clears_invalidated_results(
     assert browser.selected_sweep is None
     assert browser._tree.topLevelItemCount() == 0  # noqa: SLF001
     assert browser._summary.text() == "Sweep分割を実行できます"  # noqa: SLF001
+    assert browser._position.text() == "0 / 0"  # noqa: SLF001
+    assert not browser.can_select_previous
+    assert not browser.can_select_next
+
+
+def test_sweep_browser_navigates_without_leaving_the_available_range(
+    qtbot: object,
+) -> None:
+    browser = SweepBrowser()
+    qtbot.addWidget(browser)  # type: ignore[attr-defined]
+    sweeps = (
+        _sweep(0, SweepDirection.UP),
+        _sweep(1, SweepDirection.DOWN),
+        _sweep(2, SweepDirection.UP),
+    )
+    selected: list[Sweep] = []
+    browser.sweep_selected.connect(selected.append)
+    browser.set_sweeps(sweeps)
+
+    assert browser.selected_index == 0
+    assert browser._position.text() == "1 / 3"  # noqa: SLF001
+    assert not browser.can_select_previous
+    assert browser.can_select_next
+    assert not browser.select_previous()
+    assert browser.selected_sweep == sweeps[0]
+
+    assert browser.select_next()
+    assert browser.selected_sweep == sweeps[1]
+    assert selected[-1] == sweeps[1]
+    assert browser._position.text() == "2 / 3"  # noqa: SLF001
+    assert browser.can_select_previous
+    assert browser.can_select_next
+
+    assert browser.select_next()
+    assert browser.selected_sweep == sweeps[2]
+    assert browser._position.text() == "3 / 3"  # noqa: SLF001
+    assert browser.can_select_previous
+    assert not browser.can_select_next
+    assert not browser.select_next()
+    assert browser.selected_sweep == sweeps[2]
+
+    assert browser.select_previous()
+    assert browser.selected_sweep == sweeps[1]
