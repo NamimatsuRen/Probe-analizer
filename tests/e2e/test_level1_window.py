@@ -215,6 +215,12 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
 
     sweep_count: int = len(window._state.sweeps)  # noqa: SLF001
     assert sweep_count == 6
+    assert window._sweep_browser.sweep_count == 6  # noqa: SLF001
+    assert window._sweep_browser.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
+    first_sweep_item = window._sweep_browser._tree.topLevelItem(0)  # noqa: SLF001
+    assert first_sweep_item.text(0) == "1"
+    assert first_sweep_item.text(1) == "↑ 上昇"
+    assert first_sweep_item.text(4) == "4"
     stale_generation = window._sweep_generation  # noqa: SLF001
     stale_result = SweepSplitResult(
         sweeps=window._state.sweeps,  # noqa: SLF001
@@ -228,5 +234,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
 
     window._load_series(voltage_descriptor)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
+    assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
+    assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
