@@ -23,6 +23,7 @@ from probe_app.domain.errors import RoleAssignmentStoreError
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
+from probe_app.domain.models.sweep import Sweep
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
     DataBrowser,
@@ -80,6 +81,7 @@ class MainWindow(QMainWindow):
         self._role_panel.assignments_changed.connect(self._role_assignments_changed)
         self._sweep_panel.run_requested.connect(self._start_sweep_split)
         self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
+        self._sweep_browser.sweep_selected.connect(self._sweep_selected)
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -409,6 +411,10 @@ class MainWindow(QMainWindow):
         )
         self._render_actions()
 
+    def _sweep_selected(self, sweep_object: object) -> None:
+        if isinstance(sweep_object, Sweep):
+            self._raw_plot.highlight_sweep(sweep_object)
+
     def _series_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._load_generation:
             return
@@ -500,6 +506,16 @@ class MainWindow(QMainWindow):
             self._state.sweeps,
             self._state.sweep_message,
         )
+        selected_sweep = self._sweep_browser.selected_sweep
+        if self._state.sweeps and selected_sweep is not None:
+            highlighted_sweep = self._raw_plot.highlighted_sweep
+            if (
+                highlighted_sweep is None
+                or highlighted_sweep.sweep_id != selected_sweep.sweep_id
+            ):
+                self._raw_plot.highlight_sweep(selected_sweep)
+        else:
+            self._raw_plot.clear_sweep_highlight()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
