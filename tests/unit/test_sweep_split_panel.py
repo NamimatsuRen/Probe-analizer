@@ -24,7 +24,38 @@ def test_split_panel_exposes_explicit_non_json_parameters(qtbot: object) -> None
         == "currentの参照時刻を補正します。"
         "正の値ではSweep電圧より後のcurrentを使います。"
     )
-    assert "＋はSweep電圧時刻より後" in panel._offset_help.text()  # noqa: SLF001
+    assert "Rawプレビュー: +1.250000 ms（未適用）" in panel.offset_status_text
+
+
+def test_split_panel_defaults_to_the_legacy_analysis_window(qtbot: object) -> None:
+    panel = SweepSplitPanel()
+    qtbot.addWidget(panel)  # type: ignore[attr-defined]
+
+    assert panel.parameters() == LegacySweepSplitParameters(
+        points_per_cycle=20_000,
+        sample_start=200_000,
+        sample_stop=500_000,
+    )
+
+
+def test_offset_change_emits_lightweight_preview_and_tracks_applied_value(
+    qtbot: object,
+) -> None:
+    panel = SweepSplitPanel()
+    qtbot.addWidget(panel)  # type: ignore[attr-defined]
+
+    with qtbot.waitSignal(  # type: ignore[attr-defined]
+        panel.current_time_offset_preview_changed,
+        timeout=1_000,
+    ) as blocker:
+        panel.set_current_time_offset_s(0.05)
+
+    assert blocker.args == [0.05]
+    assert "Rawプレビュー: +50.000000 ms（未適用）" in panel.offset_status_text
+    assert "I–V・Sweep一覧・平滑化/微分" in panel.offset_status_text
+
+    panel.mark_current_time_offset_applied(0.05)
+    assert "適用済み: +50.000000 ms" in panel.offset_status_text
 
 
 def test_split_panel_only_runs_when_ready_and_not_running(qtbot: object) -> None:

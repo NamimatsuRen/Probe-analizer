@@ -13,14 +13,17 @@ from probe_app.domain.models.sweep import (
 )
 from probe_app.domain.services.signal_alignment import AlignedSignals
 
+DEFAULT_ANALYSIS_SAMPLE_START = 200_000
+DEFAULT_ANALYSIS_SAMPLE_STOP = 500_000
+
 
 @dataclass(frozen=True, slots=True)
 class LegacySweepSplitParameters:
     """Explicit inputs formerly supplied by the legacy JSON configuration."""
 
     points_per_cycle: int
-    sample_start: int = 0
-    sample_stop: int | None = None
+    sample_start: int = DEFAULT_ANALYSIS_SAMPLE_START
+    sample_stop: int | None = DEFAULT_ANALYSIS_SAMPLE_STOP
 
 
 @dataclass(frozen=True, slots=True)

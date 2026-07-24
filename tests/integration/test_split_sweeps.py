@@ -72,7 +72,11 @@ def _request(
         current_descriptor=current,
         voltage_descriptor=voltage,
         assignments=assignments,
-        parameters=LegacySweepSplitParameters(points_per_cycle=8),
+        parameters=LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=None,
+        ),
         current_time_offset_s=current_time_offset_s,
     )
 

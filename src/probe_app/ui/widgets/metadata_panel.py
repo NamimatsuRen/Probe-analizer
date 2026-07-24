@@ -59,6 +59,9 @@ class MetadataPanel(QWidget):
         start, end = series.time_range_s
         low, high = series.value_range
         self._fields["points"].setText(f"{series.point_count:,}")
-        self._fields["time"].setText(f"{_number(start, 's')} ～ {_number(end, 's')}")
+        self._fields["time"].setText(
+            f"{_number(start * 1_000.0, 'ms')} ～ "
+            f"{_number(end * 1_000.0, 'ms')}"
+        )
         unit = descriptor.value_unit
         self._fields["value"].setText(f"{_number(low, unit)} ～ {_number(high, unit)}")

@@ -50,8 +50,8 @@ class SweepBrowser(QWidget):
             [
                 "No.",
                 "方向",
-                "電圧開始 [s]",
-                "電圧終了 [s]",
+                "電圧開始 [ms]",
+                "電圧終了 [ms]",
                 "点数",
                 "電圧範囲 [V]",
             ]
@@ -77,7 +77,7 @@ class SweepBrowser(QWidget):
         self._issues_tree = QTreeWidget()
         self._issues_tree.setObjectName("sweepExclusionBrowser")
         self._issues_tree.setHeaderLabels(
-            ["sample範囲", "時間範囲 [s]", "点数", "理由"]
+            ["sample範囲", "時間範囲 [ms]", "点数", "理由"]
         )
         self._issues_tree.setAlternatingRowColors(True)
         self._issues_tree.setUniformRowHeights(True)
@@ -172,8 +172,8 @@ class SweepBrowser(QWidget):
                 [
                     str(number),
                     _direction_label(sweep.direction),
-                    _format_float(float(sweep.time_s[0])),
-                    _format_float(float(sweep.time_s[-1])),
+                    _format_float(float(sweep.time_s[0]) * 1_000.0),
+                    _format_float(float(sweep.time_s[-1]) * 1_000.0),
                     f"{sweep.point_count:,}",
                     f"{_format_float(voltage_min)} – {_format_float(voltage_max)}",
                 ]
@@ -288,8 +288,8 @@ class SweepBrowser(QWidget):
                         f"–{exclusion.source_stop_index - 1:,}"
                     ),
                     (
-                        f"{_format_float(exclusion.start_time_s)}"
-                        f" – {_format_float(exclusion.end_time_s)}"
+                        f"{_format_float(exclusion.start_time_s * 1_000.0)}"
+                        f" – {_format_float(exclusion.end_time_s * 1_000.0)}"
                     ),
                     f"{exclusion.point_count:,}",
                     _exclusion_label(exclusion.reason),

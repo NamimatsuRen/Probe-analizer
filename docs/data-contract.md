@@ -146,15 +146,26 @@ valid Sweepと除外区間は画面上で別一覧にする。除外区間は選
 次を明示する。
 
 - `points_per_cycle`: 1周期のsample点数。2以上の偶数。
-- `sample_start`: 対象半開区間の先頭。既定値0。
-- `sample_stop`: 対象半開区間の末尾。「末尾まで使う」場合は未指定。
+- `sample_start`: 対象半開区間の先頭。既定値200,000。
+- `sample_stop`: 対象半開区間の末尾。既定値500,000。
 - `current_time_offset_s`: current参照時刻の符号付き補正値。既定値0。
   画面ではms表示し、正値はSweep電圧より後ろのcurrentを参照する。
+
+既定のI–V生成対象は`time[200000:500000]`、`sweep[200000:500000]`、
+`raw[200000:500000]`に相当する。ただしRawプロットは解析配列とは別にreader出力の全時間範囲を
+表示し、解析範囲の外側も切り捨てない。
 
 `Sweep.time_s`と一覧の開始・終了時刻はSweep電圧基準であり、補正によって移動しない。
 分割後の各`Sweep`は適用済み`current_time_offset_s`を保持し、current Raw上で対応位置を
 表示するときは`time_s + current_time_offset_s`を使う。I–Vの`current_a`はこの補正後時刻で
 補間済みの値である。
+
+時間補正入力の変更中は、選択SweepのRaw highlightだけに候補値を加えて表示する。
+この値は未適用プレビューであり、`Sweep`、I–V、Sweep一覧、前処理結果を変更しない。
+「Sweep分割を実行」が押されたときだけ不変requestへ取り込み、処理成功後に適用済み値とする。
+
+内部データの時間単位は秒のまま維持する。利用者に表示するRaw横軸、Raw情報の時間範囲、
+Sweep一覧、除外区間、選択説明の時刻はすべてmsへ変換する。
 
 実行時点のrole割当と上記パラメータを不変なrequestとしてbackground taskへ渡す。
 実行後にseriesまたはroleが変わった場合、旧requestの結果はgeneration不一致として破棄する。
