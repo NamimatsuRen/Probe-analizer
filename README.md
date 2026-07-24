@@ -64,6 +64,19 @@ uv run mypy
 
 これらは、フォルダから見つけた系列に「current」「sweep voltage」などの役割を割り当てるLevel 2以降で追加します。Level 1では、`.hdr` に記録された分解能・オフセット・単位だけを適用します。
 
+## Level 2（domain foundation）
+
+Level 2のGUIへ進む前段として、次の純粋な計算機能を実装しています。
+
+- basenameに依存しないcurrent / sweep voltageの役割モデル
+- 旧コードの`current × 1/20`、`sweep voltage × 100`、電流符号を再現できる明示変換
+- 異なる開始時刻・sampling間隔を扱う時間軸整合（外挿なし）
+- source境界と取得方向を保持する`Sweep`モデル
+- 旧`sweep_sort`互換の半周期分割と型付きエラー
+
+役割や倍率の入力にJSONファイルは要求しません。現時点では計算境界とテストまでで、
+役割割当画面・Sweep Browser・I–V表示は後続の小さな変更として接続します。
+
 ## 設計資料
 
 - [アーキテクチャ](docs/architecture.md)
