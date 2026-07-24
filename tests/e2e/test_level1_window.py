@@ -5,11 +5,14 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+import numpy as np
 from PySide6.QtCore import QSettings
 
-from probe_app.application.state import LoadStatus
+from probe_app.application.state import LoadStatus, SweepRunStatus
+from probe_app.application.use_cases import SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
+from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from probe_app.ui.main_window import MainWindow
 from tests.conftest import write_panta_series
 
@@ -151,3 +154,79 @@ def test_assignment_save_failure_does_not_block_raw_view(
 
     assert window._state.status is LoadStatus.READY  # noqa: SLF001
     assert "Raw表示はそのまま" in window._role_panel._persistence_status.text()  # noqa: SLF001
+
+
+def test_level2_window_runs_sweep_split_and_discards_stale_result(
+    qtbot: object,
+    tmp_path: Path,
+) -> None:
+    measurement_folder = tmp_path / "measurements"
+    current_samples = np.arange(32, dtype=np.int16)
+    voltage_samples = np.tile(
+        np.asarray([-3, -2, -1, 0, 1, 2, 3, 2], dtype=np.int16),
+        4,
+    )
+    write_panta_series(
+        measurement_folder / "shot-001",
+        "current",
+        samples=current_samples,
+        resolution=1.0,
+        offset=0.0,
+        time_resolution=0.01,
+        time_offset=0.0,
+    )
+    write_panta_series(
+        measurement_folder / "shot-001",
+        "voltage",
+        samples=voltage_samples,
+        resolution=1.0,
+        offset=0.0,
+        time_resolution=0.01,
+        time_offset=0.0,
+    )
+    window = MainWindow(
+        settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
+    )
+    qtbot.addWidget(window)  # type: ignore[attr-defined]
+    window.open_folder(measurement_folder)
+    qtbot.waitUntil(  # type: ignore[attr-defined]
+        lambda: window._state.status is LoadStatus.READY  # noqa: SLF001
+        and window._load_task is None,  # noqa: SLF001
+        timeout=3_000,
+    )
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.CURRENT,
+        "shot-001/current",
+    )
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.SWEEP_VOLTAGE,
+        "shot-001/voltage",
+    )
+    window._sweep_panel.set_parameters(  # noqa: SLF001
+        LegacySweepSplitParameters(points_per_cycle=8)
+    )
+
+    window._sweep_panel._run_button.click()  # noqa: SLF001
+    qtbot.waitUntil(  # type: ignore[attr-defined]
+        lambda: window._state.sweep_status is SweepRunStatus.SUCCEEDED  # noqa: SLF001
+        and window._sweep_task is None,  # noqa: SLF001
+        timeout=3_000,
+    )
+
+    sweep_count: int = len(window._state.sweeps)  # noqa: SLF001
+    assert sweep_count == 6
+    stale_generation = window._sweep_generation  # noqa: SLF001
+    stale_result = SweepSplitResult(
+        sweeps=window._state.sweeps,  # noqa: SLF001
+        current_series_id="shot-001/current",
+        voltage_series_id="shot-001/voltage",
+        interpolated_current=False,
+        parameters=LegacySweepSplitParameters(points_per_cycle=8),
+    )
+    voltage_descriptor = window._state.catalog.find("shot-001/voltage")  # type: ignore[union-attr]  # noqa: E501, SLF001
+    assert voltage_descriptor is not None
+
+    window._load_series(voltage_descriptor)  # noqa: SLF001
+    assert window._state.sweeps == ()  # noqa: SLF001
+    window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001
+    assert window._state.sweeps == ()  # noqa: SLF001
