@@ -75,3 +75,7 @@ class SweepSplitError(ProbeAppError):
         self.failure = failure
         self.detail = detail
         super().__init__(f"{failure.value}: {detail}")
+
+
+class RoleAssignmentStoreError(ProbeAppError):
+    """Role assignments could not be loaded from or saved to app preferences."""

@@ -15,23 +15,45 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from probe_app.application.ports import RoleAssignmentStore
 from probe_app.application.state.app_state import AppState, LoadStatus
+from probe_app.domain.errors import RoleAssignmentStoreError
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
-from probe_app.ui.widgets import DataBrowser, MetadataPanel, RawPlot, StatusPanel
+from probe_app.domain.models.series_role import SeriesRoleAssignments
+from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
+from probe_app.ui.widgets import (
+    DataBrowser,
+    MetadataPanel,
+    RawPlot,
+    RoleAssignmentPanel,
+    StatusPanel,
+)
 from probe_app.ui.workers import FolderScanTask, SeriesLoadTask
 
 LOGGER = logging.getLogger(__name__)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        settings: QSettings | None = None,
+        assignment_store: RoleAssignmentStore | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Probe Analizer — Rawデータブラウザ")
         self.resize(1280, 760)
 
         self._state = AppState()
-        self._settings = QSettings("NamimatsuRen", "ProbeAnalizer")
+        self._settings = (
+            settings if settings is not None else QSettings("NamimatsuRen", "ProbeAnalizer")
+        )
+        self._assignment_store = (
+            assignment_store
+            if assignment_store is not None
+            else QSettingsRoleAssignmentStore(self._settings)
+        )
         self._thread_pool = QThreadPool.globalInstance()
         self._scan_generation = 0
         self._load_generation = 0
@@ -39,15 +61,24 @@ class MainWindow(QMainWindow):
         self._load_task: SeriesLoadTask | None = None
 
         self._data_browser = DataBrowser()
+        self._role_panel = RoleAssignmentPanel()
         self._raw_plot = RawPlot()
         self._metadata = MetadataPanel()
         self._status = StatusPanel()
         self._build_layout()
         self._build_toolbar()
         self._data_browser.series_selected.connect(self._load_series)
+        self._role_panel.assignments_changed.connect(self._role_assignments_changed)
         self._render_state()
 
     def _build_layout(self) -> None:
+        left = QSplitter(Qt.Orientation.Vertical)
+        left.addWidget(self._data_browser)
+        left.addWidget(self._role_panel)
+        left.setStretchFactor(0, 3)
+        left.setStretchFactor(1, 2)
+        left.setSizes([450, 310])
+
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self._raw_plot)
         right.addWidget(self._metadata)
@@ -55,11 +86,11 @@ class MainWindow(QMainWindow):
         right.setStretchFactor(1, 1)
 
         content = QSplitter(Qt.Orientation.Horizontal)
-        content.addWidget(self._data_browser)
+        content.addWidget(left)
         content.addWidget(right)
         content.setStretchFactor(0, 1)
         content.setStretchFactor(1, 4)
-        content.setSizes([300, 980])
+        content.setSizes([360, 920])
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -111,6 +142,7 @@ class MainWindow(QMainWindow):
         self._state = self._state.start_loading(folder)
         self._settings.setValue("recentFolder", str(folder))
         self._data_browser.clear_catalog(str(folder))
+        self._role_panel.clear_context()
         self._raw_plot.clear_plot("フォルダを走査しています…")
         self._metadata.clear()
         self._render_state()
@@ -130,6 +162,7 @@ class MainWindow(QMainWindow):
         self._render_state()
 
         if catalog_object.is_empty:
+            self._role_panel.clear_context()
             self._raw_plot.clear_plot("対応する測定データがありません")
             return
         self._data_browser.set_catalog(catalog_object)
@@ -164,6 +197,7 @@ class MainWindow(QMainWindow):
             return
         if self._state.catalog is not None:
             self._state = self._state.select_series(descriptor_object.series_id)
+            self._activate_role_shot(descriptor_object.shot_id)
 
         if self._load_task is not None:
             self._load_task.cancel()
@@ -183,6 +217,64 @@ class MainWindow(QMainWindow):
         task.signals.cancelled.connect(self._series_cancelled)
         self._load_task = task
         self._thread_pool.start(task)
+
+    def _activate_role_shot(self, shot_id: str) -> None:
+        catalog = self._state.catalog
+        folder = self._state.folder
+        if catalog is None or folder is None:
+            self._role_panel.clear_context()
+            return
+        if self._state.role_assignment_shot_id == shot_id:
+            return
+
+        descriptors = catalog.series_for_shot(shot_id)
+        warning = ""
+        try:
+            assignments = self._assignment_store.load(folder, shot_id)
+        except RoleAssignmentStoreError as error:
+            LOGGER.warning("Role assignment load failed: %s", error)
+            assignments = SeriesRoleAssignments()
+            warning = "保存済み設定を読み込めませんでした。Raw表示は継続できます。"
+
+        valid_ids = {descriptor.series_id for descriptor in descriptors}
+        valid_items = tuple(
+            assignment
+            for assignment in assignments.items
+            if assignment.series_id in valid_ids
+        )
+        if len(valid_items) != len(assignments.items):
+            assignments = SeriesRoleAssignments(valid_items)
+            warning = "保存済み設定の一部が現在のフォルダにないため未割当にしました。"
+
+        self._state = self._state.set_role_assignments(shot_id, assignments)
+        self._role_panel.set_context(shot_id, descriptors, assignments)
+        if warning:
+            self._role_panel.set_persistence_status(warning, error=True)
+        elif assignments.items:
+            self._role_panel.set_persistence_status("保存済み設定を復元しました")
+        else:
+            self._role_panel.set_persistence_status("役割を選択してください")
+
+    def _role_assignments_changed(self, assignments_object: object) -> None:
+        if not isinstance(assignments_object, SeriesRoleAssignments):
+            return
+        shot_id = self._state.role_assignment_shot_id
+        folder = self._state.folder
+        if shot_id is None or folder is None:
+            return
+
+        self._state = self._state.set_role_assignments(shot_id, assignments_object)
+        try:
+            self._assignment_store.save(folder, shot_id, assignments_object)
+        except RoleAssignmentStoreError as error:
+            LOGGER.warning("Role assignment save failed: %s", error)
+            self._role_panel.set_persistence_status(
+                "設定を保存できませんでした。Raw表示はそのまま利用できます。",
+                error=True,
+            )
+            return
+        suffix = "（未割当あり）" if not assignments_object.is_complete else ""
+        self._role_panel.set_persistence_status(f"設定を保存しました{suffix}")
 
     def _series_loaded(self, generation: int, series_object: object) -> None:
         if generation != self._load_generation or not isinstance(series_object, RawSeries):
