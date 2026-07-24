@@ -42,21 +42,21 @@ def test_sweep_browser_displays_required_metadata(qtbot: object) -> None:
 
     assert browser.sweep_count == 2
     assert browser.selected_sweep == sweeps[0]
-    assert browser._tree.headerItem().text(2) == "電圧開始 [s]"  # noqa: SLF001
-    assert browser._tree.headerItem().text(3) == "電圧終了 [s]"  # noqa: SLF001
+    assert browser._tree.headerItem().text(2) == "電圧開始 [ms]"  # noqa: SLF001
+    assert browser._tree.headerItem().text(3) == "電圧終了 [ms]"  # noqa: SLF001
     first = browser._tree.topLevelItem(0)  # noqa: SLF001
     second = browser._tree.topLevelItem(1)  # noqa: SLF001
     assert [first.text(column) for column in range(6)] == [
         "1",
         "↑ 上昇",
-        "0.1",
-        "0.4",
+        "100",
+        "400",
         "4",
         "-2 – 2.5",
     ]
     assert second.text(1) == "↓ 下降"
-    assert second.text(2) == "1.1"
-    assert second.text(3) == "1.4"
+    assert second.text(2) == "1100"
+    assert second.text(3) == "1400"
 
 
 def test_sweep_browser_emits_selection_and_clears_invalidated_results(
@@ -156,7 +156,7 @@ def test_sweep_browser_displays_excluded_intervals_separately(
     issue = browser._issues_tree.topLevelItem(0)  # noqa: SLF001
     assert [issue.text(column) for column in range(4)] == [
         "12–14",
-        "0.12 – 0.14",
+        "120 – 140",
         "3",
         "短い未完了Sweep",
     ]

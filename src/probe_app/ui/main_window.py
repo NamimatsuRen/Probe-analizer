@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QThreadPool
@@ -90,6 +91,9 @@ class MainWindow(QMainWindow):
         self._role_panel.assignments_changed.connect(self._role_assignments_changed)
         self._sweep_panel.run_requested.connect(self._start_sweep_split)
         self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
+        self._sweep_panel.current_time_offset_preview_changed.connect(
+            self._current_time_offset_preview_changed
+        )
         self._sweep_browser.sweep_selected.connect(self._sweep_selected)
         self._preprocessing_panel.run_requested.connect(
             self._preprocessing_requested
@@ -383,6 +387,7 @@ class MainWindow(QMainWindow):
             self._render_sweep_panel()
             return
 
+        self._sweep_panel.clear_applied_current_time_offset()
         self._invalidate_sweep_task()
         generation = self._sweep_generation
         self._state = self._state.start_sweep_split()
@@ -404,6 +409,10 @@ class MainWindow(QMainWindow):
         ):
             return
         self._sweep_task = None
+        self._raw_plot.clear_current_time_offset_preview()
+        self._sweep_panel.mark_current_time_offset_applied(
+            result_object.current_time_offset_s
+        )
         self._state = self._state.apply_sweep_result(
             result_object.sweeps,
             interpolated_current=result_object.interpolated_current,
@@ -474,6 +483,18 @@ class MainWindow(QMainWindow):
                 self._preprocessing_panel.settings(),
             )
             self._render_actions()
+
+    def _current_time_offset_preview_changed(self, offset_s: float) -> None:
+        selected_sweep = self._state.selected_sweep
+        if selected_sweep is not None and math.isclose(
+            offset_s,
+            selected_sweep.current_time_offset_s,
+            rel_tol=0.0,
+            abs_tol=5e-10,
+        ):
+            self._raw_plot.clear_current_time_offset_preview()
+            return
+        self._raw_plot.preview_current_time_offset(offset_s)
 
     def _preprocessing_requested(self, settings_object: object) -> None:
         if not isinstance(settings_object, SavitzkyGolaySettings):

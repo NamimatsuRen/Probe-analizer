@@ -6,6 +6,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
+import pytest
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import QSplitter, QTabWidget
 
@@ -229,7 +230,11 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
         "shot-001/voltage",
     )
     window._sweep_panel.set_parameters(  # noqa: SLF001
-        LegacySweepSplitParameters(points_per_cycle=8)
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=32,
+        )
     )
     window._preprocessing_panel.set_settings(  # noqa: SLF001
         SavitzkyGolaySettings(window_length=3, polyorder=2)
@@ -268,6 +273,33 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     original_sweeps = window._state.sweeps  # noqa: SLF001
     original_sweep_generation = window._sweep_generation  # noqa: SLF001
+    original_iv_sweep = window._sweep_iv_plot.selected_sweep  # noqa: SLF001
+    original_preprocessed = window._sweep_iv_plot.preprocessed  # noqa: SLF001
+    selected_before_preview = window._state.selected_sweep  # noqa: SLF001
+    assert selected_before_preview is not None
+    assert window._raw_plot.displayed_series_id == "shot-001/current"  # noqa: SLF001
+
+    window._sweep_panel.set_current_time_offset_s(0.02)  # noqa: SLF001
+
+    assert window._state.sweeps is original_sweeps  # noqa: SLF001
+    assert window._sweep_generation == original_sweep_generation  # noqa: SLF001
+    assert window._sweep_task is None  # noqa: SLF001
+    assert window._sweep_iv_plot.selected_sweep is original_iv_sweep  # noqa: SLF001
+    assert window._sweep_iv_plot.preprocessed is original_preprocessed  # noqa: SLF001
+    assert selected_before_preview.current_time_offset_s == 0.0
+    assert window._raw_plot.preview_current_time_offset_s == 0.02  # noqa: SLF001
+    assert window._raw_plot.highlighted_interval_ms == pytest.approx(  # noqa: SLF001
+        (
+            (float(selected_before_preview.time_s[0]) + 0.02) * 1_000.0,
+            (float(selected_before_preview.time_s[-1]) + 0.02) * 1_000.0,
+        )
+    )
+    assert "未適用" in window._raw_plot.highlight_description  # noqa: SLF001
+    assert "未適用" in window._sweep_panel.offset_status_text  # noqa: SLF001
+
+    window._sweep_panel.set_current_time_offset_s(0.0)  # noqa: SLF001
+    assert window._raw_plot.preview_current_time_offset_s is None  # noqa: SLF001
+
     window._preprocessing_panel.set_settings(  # noqa: SLF001
         SavitzkyGolaySettings(window_length=3, polyorder=1)
     )
@@ -333,7 +365,11 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
         current_series_id="shot-001/current",
         voltage_series_id="shot-001/voltage",
         interpolated_current=False,
-        parameters=LegacySweepSplitParameters(points_per_cycle=8),
+        parameters=LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=32,
+        ),
     )
     voltage_descriptor = window._state.catalog.find("shot-001/voltage")  # type: ignore[union-attr]  # noqa: E501, SLF001
     assert voltage_descriptor is not None

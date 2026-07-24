@@ -148,6 +148,11 @@ SweepSplitPanel
   維持する。
 - Raw highlightは表示中系列がcurrentなら補正後のcurrent参照時刻、sweep voltageまたは
   その他の系列ならSweep電圧基準時刻を使う。I–Vと選択情報には適用済み補正値を明示する。
+- current時間補正の`valueChanged`はRaw highlightの表示座標だけを更新する。未適用プレビュー中は
+  `AppState.sweeps`、I–V、前処理結果、background task generationを変更しない。
+- 補正値は「Sweep分割を実行」で初めてrequestへ取り込み、成功後にプレビューを適用済みへ移す。
+- I–Vの既定対象はsample半開区間`[200000, 500000)`、Raw表示はreaderが返した全時間範囲とする。
+- domainの時間単位は秒を維持し、Raw軸・metadata・Sweep一覧・除外区間・説明文はUI境界でmsへ変換する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
 - Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
 

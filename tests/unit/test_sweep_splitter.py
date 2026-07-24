@@ -34,7 +34,11 @@ def test_golden_legacy_boundaries_directions_and_iv_order() -> None:
 
     sweeps = split_legacy_sweeps(
         signals,
-        LegacySweepSplitParameters(points_per_cycle=8),
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=None,
+        ),
     )
 
     assert len(sweeps) == 4
@@ -59,7 +63,11 @@ def test_first_cycle_minimum_sets_the_source_boundary() -> None:
 
     sweeps = split_legacy_sweeps(
         signals,
-        LegacySweepSplitParameters(points_per_cycle=8),
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=None,
+        ),
     )
 
     assert sweeps[0].source_start_index == 12
@@ -91,7 +99,11 @@ def test_odd_cycle_length_reports_a_typed_failure() -> None:
     with pytest.raises(SweepSplitError) as caught:
         split_legacy_sweeps(
             signals,
-            LegacySweepSplitParameters(points_per_cycle=3),
+            LegacySweepSplitParameters(
+                points_per_cycle=3,
+                sample_start=0,
+                sample_stop=None,
+            ),
         )
 
     assert caught.value.failure is SweepSplitFailure.INVALID_PARAMETERS
@@ -103,7 +115,11 @@ def test_partial_half_cycle_is_not_silently_dropped() -> None:
     with pytest.raises(SweepSplitError) as caught:
         split_legacy_sweeps(
             signals,
-            LegacySweepSplitParameters(points_per_cycle=6),
+            LegacySweepSplitParameters(
+                points_per_cycle=6,
+                sample_start=0,
+                sample_stop=None,
+            ),
         )
 
     assert caught.value.failure is SweepSplitFailure.MISALIGNED_WINDOW
@@ -117,7 +133,11 @@ def test_diagnostics_retains_valid_sweeps_and_every_excluded_interval() -> None:
 
     diagnostics = split_legacy_sweeps_with_diagnostics(
         signals,
-        LegacySweepSplitParameters(points_per_cycle=8),
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=None,
+        ),
     )
 
     assert [
@@ -151,7 +171,11 @@ def test_golden_boundaries_allow_zero_sample_error() -> None:
 
     diagnostics = split_legacy_sweeps_with_diagnostics(
         signals,
-        LegacySweepSplitParameters(points_per_cycle=8),
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=None,
+        ),
     )
     actual_boundaries = tuple(
         (sweep.source_start_index, sweep.source_stop_index)
@@ -173,3 +197,34 @@ def test_golden_boundaries_allow_zero_sample_error() -> None:
         SweepDirection.UP,
         SweepDirection.DOWN,
     ]
+
+
+def test_default_analysis_window_is_limited_to_samples_200000_through_500000() -> None:
+    points_per_cycle = 20_000
+    cycle = np.concatenate(
+        (
+            np.linspace(-1.0, 1.0, points_per_cycle // 2, endpoint=False),
+            np.linspace(1.0, -1.0, points_per_cycle // 2, endpoint=False),
+        )
+    )
+    voltage = np.tile(cycle, 30)
+    count = voltage.size
+    signals = AlignedSignals(
+        current_series_id="current",
+        voltage_series_id="voltage",
+        time_s=np.arange(count, dtype=np.float64) * 1e-6,
+        current_a=np.arange(count, dtype=np.float64),
+        sweep_voltage_v=voltage,
+        voltage_source_start_index=0,
+        interpolated_current=False,
+    )
+
+    diagnostics = split_legacy_sweeps_with_diagnostics(
+        signals,
+        LegacySweepSplitParameters(points_per_cycle=points_per_cycle),
+    )
+
+    assert diagnostics.sweeps[0].source_start_index == 200_000
+    assert diagnostics.sweeps[0].time_s[0] == pytest.approx(0.2)
+    assert all(sweep.source_start_index >= 200_000 for sweep in diagnostics.sweeps)
+    assert all(sweep.source_stop_index <= 500_000 for sweep in diagnostics.sweeps)

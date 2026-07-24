@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -15,7 +17,11 @@ from PySide6.QtWidgets import (
 )
 
 from probe_app.application.state import SweepRunStatus
-from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
+from probe_app.domain.services.sweep_splitter import (
+    DEFAULT_ANALYSIS_SAMPLE_START,
+    DEFAULT_ANALYSIS_SAMPLE_STOP,
+    LegacySweepSplitParameters,
+)
 
 
 class SweepSplitPanel(QWidget):
@@ -23,11 +29,13 @@ class SweepSplitPanel(QWidget):
 
     run_requested = Signal()
     cancel_requested = Signal()
+    current_time_offset_preview_changed = Signal(float)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._ready = False
         self._running = False
+        self._applied_current_time_offset_s: float | None = None
 
         self._points_per_cycle = QSpinBox()
         self._points_per_cycle.setObjectName("pointsPerCycle")
@@ -39,15 +47,15 @@ class SweepSplitPanel(QWidget):
         self._sample_start = QSpinBox()
         self._sample_start.setObjectName("sampleStart")
         self._sample_start.setRange(0, 100_000_000)
-        self._sample_start.setValue(0)
+        self._sample_start.setValue(DEFAULT_ANALYSIS_SAMPLE_START)
 
         self._use_all_remaining = QCheckBox("末尾まで使う")
-        self._use_all_remaining.setChecked(True)
+        self._use_all_remaining.setChecked(False)
         self._sample_stop = QSpinBox()
         self._sample_stop.setObjectName("sampleStop")
         self._sample_stop.setRange(1, 100_000_000)
-        self._sample_stop.setValue(500_000)
-        self._sample_stop.setEnabled(False)
+        self._sample_stop.setValue(DEFAULT_ANALYSIS_SAMPLE_STOP)
+        self._sample_stop.setEnabled(True)
 
         self._current_time_offset_ms = QDoubleSpinBox()
         self._current_time_offset_ms.setObjectName("currentTimeOffsetMs")
@@ -60,7 +68,8 @@ class SweepSplitPanel(QWidget):
             "currentの参照時刻を補正します。正の値ではSweep電圧より後のcurrentを使います。"
         )
         self._offset_help = QLabel(
-            "時間補正の符号：＋はSweep電圧時刻より後、−は前のcurrentを参照"
+            "時間補正の符号：＋はSweep電圧時刻より後、−は前のcurrentを参照。"
+            "変更中はRaw上の範囲だけをプレビューします。"
         )
         self._offset_help.setObjectName("currentTimeOffsetHelp")
         self._offset_help.setWordWrap(True)
@@ -75,11 +84,11 @@ class SweepSplitPanel(QWidget):
 
         form = QFormLayout()
         form.addRow("1周期の点数", self._points_per_cycle)
-        form.addRow("開始sample", self._sample_start)
+        form.addRow("解析開始sample", self._sample_start)
         stop_row = QHBoxLayout()
         stop_row.addWidget(self._use_all_remaining)
         stop_row.addWidget(self._sample_stop, 1)
-        form.addRow("終了sample", stop_row)
+        form.addRow("解析終了sample", stop_row)
         form.addRow("current時間補正", self._current_time_offset_ms)
 
         buttons = QHBoxLayout()
@@ -99,6 +108,9 @@ class SweepSplitPanel(QWidget):
         layout.addStretch(1)
 
         self._use_all_remaining.toggled.connect(self._all_remaining_toggled)
+        self._current_time_offset_ms.valueChanged.connect(
+            self._current_time_offset_changed
+        )
         self._run_button.clicked.connect(self.run_requested)
         self._cancel_button.clicked.connect(self.cancel_requested)
         self.render_state(SweepRunStatus.IDLE, self._status.text(), ready=False)
@@ -125,6 +137,18 @@ class SweepSplitPanel(QWidget):
 
     def set_current_time_offset_s(self, offset_s: float) -> None:
         self._current_time_offset_ms.setValue(offset_s * 1_000.0)
+
+    @property
+    def offset_status_text(self) -> str:
+        return self._offset_help.text()
+
+    def mark_current_time_offset_applied(self, offset_s: float) -> None:
+        self._applied_current_time_offset_s = offset_s
+        self._update_offset_help(offset_s)
+
+    def clear_applied_current_time_offset(self) -> None:
+        self._applied_current_time_offset_s = None
+        self._update_offset_help(self.current_time_offset_s())
 
     def render_state(
         self,
@@ -159,3 +183,26 @@ class SweepSplitPanel(QWidget):
 
     def _all_remaining_toggled(self, checked: bool) -> None:
         self._sample_stop.setEnabled(not checked and not self._running)
+
+    def _current_time_offset_changed(self, offset_ms: float) -> None:
+        offset_s = offset_ms / 1_000.0
+        self._update_offset_help(offset_s)
+        self.current_time_offset_preview_changed.emit(offset_s)
+
+    def _update_offset_help(self, offset_s: float) -> None:
+        applied = self._applied_current_time_offset_s
+        if applied is not None and math.isclose(
+            offset_s,
+            applied,
+            rel_tol=0.0,
+            abs_tol=5e-10,
+        ):
+            self._offset_help.setText(
+                f"適用済み: {offset_s * 1_000.0:+.6f} ms"
+                "（＋は後、−は前のcurrentを参照）"
+            )
+            return
+        self._offset_help.setText(
+            f"Rawプレビュー: {offset_s * 1_000.0:+.6f} ms（未適用）。"
+            "I–V・Sweep一覧・平滑化/微分は「Sweep分割を実行」後に更新します。"
+        )

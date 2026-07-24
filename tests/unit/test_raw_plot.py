@@ -54,9 +54,11 @@ def test_raw_plot_highlights_selected_sweep_and_explains_source(qtbot: object) -
 
     assert plot.highlighted_sweep == sweep
     assert plot.highlighted_interval_s == (0.2, 0.5)
-    assert tuple(plot._sweep_region.getRegion()) == (0.2, 0.5)  # type: ignore[union-attr]  # noqa: SLF001
+    assert plot.highlighted_interval_ms == (200.0, 500.0)
+    assert tuple(plot._sweep_region.getRegion()) == (200.0, 500.0)  # type: ignore[union-attr]  # noqa: SLF001
     assert "shot-001/voltage" in plot.highlight_description
     assert "sample 2–5" in plot.highlight_description
+    assert "200–500 ms" in plot.highlight_description
     assert not plot._selection_info.isHidden()  # noqa: SLF001
 
 
@@ -90,10 +92,10 @@ def test_current_raw_highlight_uses_corrected_reference_time(
     plot.highlight_sweep(sweep)
 
     assert plot.highlighted_interval_s == pytest.approx((0.25, 0.55))
-    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((0.25, 0.55))  # type: ignore[union-attr]  # noqa: SLF001
-    assert "表示中current参照 0.25–0.55 s" in plot.highlight_description
+    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((250.0, 550.0))  # type: ignore[union-attr]  # noqa: SLF001
+    assert "表示中current参照 250–550 ms" in plot.highlight_description
     assert "補正 +50.000000 ms" in plot.highlight_description
-    assert "Sweep電圧基準 0.2–0.5 s" in plot.highlight_description
+    assert "Sweep電圧基準 200–500 ms" in plot.highlight_description
 
 
 def test_voltage_raw_highlight_keeps_voltage_reference_time(
@@ -107,6 +109,50 @@ def test_voltage_raw_highlight_keeps_voltage_reference_time(
     plot.highlight_sweep(sweep)
 
     assert plot.highlighted_interval_s == pytest.approx((0.2, 0.5))
-    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((0.2, 0.5))  # type: ignore[union-attr]  # noqa: SLF001
-    assert "Sweep電圧基準 0.2–0.5 s" in plot.highlight_description
-    assert "current補正 +50.000000 ms" in plot.highlight_description
+    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((200.0, 500.0))  # type: ignore[union-attr]  # noqa: SLF001
+    assert "Sweep電圧基準 200–500 ms" in plot.highlight_description
+    assert "current 補正 +50.000000 ms" in plot.highlight_description
+
+
+def test_raw_plot_keeps_the_complete_time_range_and_displays_ms(
+    qtbot: object,
+) -> None:
+    plot = RawPlot()
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+
+    plot.show_series(_raw_series())
+
+    curve = plot._plot.listDataItems()[0]  # noqa: SLF001
+    x, _ = curve.getData()
+    assert x is not None
+    assert float(x[0]) == 0.0
+    assert float(x[-1]) == pytest.approx(700.0)
+    bottom_axis = plot._plot.getPlotItem().getAxis("bottom")  # noqa: SLF001
+    assert bottom_axis.labelText == "Time"
+    assert bottom_axis.labelUnits == "ms"
+
+
+def test_offset_preview_moves_only_the_current_raw_region(
+    qtbot: object,
+) -> None:
+    plot = RawPlot()
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+    plot.show_series(_raw_series("shot-001/current"))
+    sweep = _sweep(current_time_offset_s=0.05)
+    plot.highlight_sweep(sweep)
+    region_before_preview = plot._sweep_region  # noqa: SLF001
+
+    plot.preview_current_time_offset(0.075)
+
+    assert plot._sweep_region is region_before_preview  # noqa: SLF001
+    assert plot.highlighted_interval_s == pytest.approx((0.275, 0.575))
+    assert plot.highlighted_interval_ms == pytest.approx((275.0, 575.0))
+    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((275.0, 575.0))  # type: ignore[union-attr]  # noqa: SLF001
+    assert "プレビュー +75.000000 ms（未適用）" in plot.highlight_description
+    assert "適用済み +50.000000 ms" in plot.highlight_description
+    assert sweep.current_time_offset_s == 0.05
+
+    plot.clear_current_time_offset_preview()
+
+    assert plot.preview_current_time_offset_s is None
+    assert plot.highlighted_interval_ms == pytest.approx((250.0, 550.0))
