@@ -59,3 +59,28 @@ Level 2では次を追加する。
 2. 役割と装置固有倍率を、JSON入力ではなく画面操作と保存可能な設定として扱う。
 3. 2系列を時間軸上で整合させ、Sweepへ分割する。
 4. Raw時系列の選択区間とI–Vプロットを連動させる。
+
+### Level 2 domain foundation
+
+Level 2の計算境界はGUIから独立させる。
+
+```text
+RawSeries
+  └─ SeriesRoleAssignments.prepare()
+       └─ PhysicalSignal (current[A] / sweep_voltage[V])
+            └─ align_current_and_voltage()
+                 └─ AlignedSignals
+                      └─ split_legacy_sweeps()
+                           └─ tuple[Sweep, ...]
+```
+
+- `SeriesRoleAssignments` はフォルダ走査結果へ後から役割を与える。basenameから役割を推測しない。
+- 装置倍率と符号は `SignalTransform` に明示し、header-calibrated Raw配列を変更しない。
+- 電流は掃引電圧の時間軸へ補間する。共通時間範囲外へは外挿しない。
+- `Sweep` のsource境界は半開区間 `[start, stop)` とする。
+- `Sweep` 配列はRaw上の位置を失わないよう取得順で保持する。
+- 解析用の電圧昇順配列は `Sweep.iv_voltage_v` / `iv_current_a` から取得する。
+- 分割条件の不備は空配列にせず、型付きの失敗理由として返す。
+
+この段階では役割割当UIと設定保存はまだ接続しない。したがって、フォルダを選ぶだけで
+Level 1のRaw閲覧ができる性質は変わらない。
