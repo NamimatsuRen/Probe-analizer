@@ -139,6 +139,22 @@ class MainWindow(QMainWindow):
         self._cancel_action.triggered.connect(self._cancel_work)
         toolbar.addAction(self._cancel_action)
 
+        toolbar.addSeparator()
+
+        self._previous_sweep_action = QAction("前のSweep", self)
+        self._previous_sweep_action.setShortcut(QKeySequence("Alt+Left"))
+        self._previous_sweep_action.setStatusTip("1つ前のSweepを表示します")
+        self._previous_sweep_action.triggered.connect(
+            self._sweep_browser.select_previous
+        )
+        toolbar.addAction(self._previous_sweep_action)
+
+        self._next_sweep_action = QAction("次のSweep", self)
+        self._next_sweep_action.setShortcut(QKeySequence("Alt+Right"))
+        self._next_sweep_action.setStatusTip("1つ次のSweepを表示します")
+        self._next_sweep_action.triggered.connect(self._sweep_browser.select_next)
+        toolbar.addAction(self._next_sweep_action)
+
     def _choose_folder(self) -> None:
         initial_value = self._settings.value("recentFolder", str(Path.home()), type=str)
         initial = str(initial_value)
@@ -418,6 +434,7 @@ class MainWindow(QMainWindow):
         if isinstance(sweep_object, Sweep):
             self._raw_plot.highlight_sweep(sweep_object)
             self._sweep_iv_plot.show_sweep(sweep_object)
+            self._render_actions()
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._load_generation:
@@ -494,6 +511,12 @@ class MainWindow(QMainWindow):
         )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)
         self._cancel_action.setEnabled(busy)
+        self._previous_sweep_action.setEnabled(
+            not busy and self._sweep_browser.can_select_previous
+        )
+        self._next_sweep_action.setEnabled(
+            not busy and self._sweep_browser.can_select_next
+        )
 
     def _render_sweep_panel(self, *, details: str | None = None) -> None:
         self._sweep_panel.render_state(
@@ -524,6 +547,7 @@ class MainWindow(QMainWindow):
         else:
             self._raw_plot.clear_sweep_highlight()
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
+        self._render_actions()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
