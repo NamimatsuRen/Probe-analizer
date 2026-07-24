@@ -6,8 +6,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QTabWidget
+from PySide6.QtCore import QSettings, Qt
+from PySide6.QtWidgets import QSplitter, QTabWidget
 
 from probe_app.analysis import SavitzkyGolaySettings
 from probe_app.application.state import LoadStatus, SweepRunStatus
@@ -22,14 +22,33 @@ from tests.conftest import write_panta_series
 def test_level1_window_starts(qtbot: object) -> None:
     window = MainWindow()
     qtbot.addWidget(window)  # type: ignore[attr-defined]
+    window.show()
+    qtbot.wait(20)  # type: ignore[attr-defined]
 
     assert window.windowTitle() == "Probe Analizer — Rawデータブラウザ"
     assert window.centralWidget() is not None
-    assert window._details_tabs.tabText(0) == "Raw波形"  # noqa: SLF001
-    assert window._details_tabs.widget(0) is window._raw_plot  # noqa: SLF001
+    assert window._details_tabs.tabText(0) == "Sweep分割"  # noqa: SLF001
+    assert window._details_tabs.tabText(1) == "Sweep一覧"  # noqa: SLF001
+    assert window._details_tabs.tabText(2) == "平滑化・微分"  # noqa: SLF001
+    assert window._details_tabs.tabText(3) == "Raw情報"  # noqa: SLF001
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
-    assert window._details_tabs.tabText(4) == "平滑化・微分"  # noqa: SLF001
+    assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
+    assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert isinstance(window._details_tabs, QTabWidget)  # noqa: SLF001
+    assert isinstance(window._lower_workspace, QSplitter)  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._lower_workspace.orientation() is Qt.Orientation.Horizontal
+    )
+    assert window._lower_workspace.widget(0) is window._raw_plot  # noqa: SLF001
+    assert window._lower_workspace.widget(1) is window._details_tabs  # noqa: SLF001
+
+    raw_width, controls_width = window._lower_workspace.sizes()  # noqa: SLF001
+    assert raw_width > controls_width
+    assert 1.5 <= raw_width / controls_width <= 2.5
+
+    for index in range(window._details_tabs.count()):  # noqa: SLF001
+        window._details_tabs.setCurrentIndex(index)  # noqa: SLF001
+        assert window._raw_plot.isVisibleTo(window)  # noqa: SLF001
 
 
 def test_level1_window_loads_folder_and_first_series(qtbot: object, tmp_path: Path) -> None:

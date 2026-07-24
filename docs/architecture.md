@@ -140,7 +140,10 @@ SweepSplitPanel
 - Sweep選択IDの正規ソースは`AppState.selected_sweep_id`とする。
 - folder、shot/role、seriesの上位選択が変わると、Sweep結果と選択を同時に無効化する。
 - 選択済み`Sweep`をRaw highlight、I–V、平滑化・微分へ渡し、各表示が別のIDを持たないようにする。
-- I–Vを上部の主表示、Raw波形を下部タブの補助表示とし、I–Vは設定・一覧操作中も維持する。
+- I–Vを上部の主表示とする。下部は水平分割し、左2/3のRaw波形を常時表示、右1/3のタブへ
+  Sweep分割・一覧・平滑化/微分・Raw情報を配置する。
+- Raw波形と右側操作タブを別widget階層に置き、設定・一覧の切替中も選択SweepのRaw highlightを
+  維持する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
 - Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
 
