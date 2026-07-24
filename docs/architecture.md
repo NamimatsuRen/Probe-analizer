@@ -37,6 +37,9 @@ ui/widgets
 | `AppState` | idle/loading/ready/empty/partial/cancelled/errorを一元管理する |
 | `FolderScanTask` | フォルダ走査をGUIスレッドの外で実行する |
 | `SeriesLoadTask` | 選択系列の読込をGUIスレッドの外で実行する |
+| `SplitSweeps` | 割り当て済み2系列を読み、時間軸整合からSweep分割まで実行する |
+| `SweepSplitTask` | `SplitSweeps`をGUIスレッドの外で実行する |
+| `SweepSplitPanel` | JSONに代わる明示パラメータ、実行、キャンセル、結果状態を表示する |
 | `MainWindow` | 操作イベントと状態・表示を接続する |
 
 ## メモリ方針
@@ -49,7 +52,14 @@ ui/widgets
 
 ## 非同期処理
 
-Qtのthread poolを使用する。キャンセルは協調的であり、処理へ停止フラグを渡す。ファイル読込中に完全な強制停止は行わないが、キャンセル後に返った結果は画面へ反映しない。
+Qtのthread poolを使用する。フォルダ走査、Raw系列読込、Sweep分割は別々のgeneration IDで
+保護する。キャンセルは協調的であり、処理へ停止フラグを渡す。ファイル読込やNumPy演算を
+途中で完全に強制停止できない場合も、キャンセルまたは系列切替後に返った旧generationの
+結果は状態・画面へ反映しない。
+
+Sweep分割のアプリ状態はフォルダ読込状態から分け、`idle / ready / running / succeeded /
+cancelled / error`として保持する。これにより分割失敗やキャンセルが、正常に読み込めている
+Rawカタログを消さない。
 
 ## 次の境界
 
@@ -101,3 +111,24 @@ RoleAssignmentPanel
 - 読込・保存エラーは役割パネル内へ表示し、Raw閲覧は継続する。
 
 この接続後も、役割を設定せずフォルダを選ぶだけでLevel 1のRaw閲覧ができる性質は変わらない。
+
+### Sweep分割の垂直接続
+
+```text
+SweepSplitPanel
+  └─ SweepSplitRequest
+       └─ SweepSplitTask (Qt thread pool)
+            └─ SplitSweeps
+                 ├─ PantaRawReader × 2
+                 ├─ SeriesRoleAssignments.prepare()
+                 ├─ align_current_and_voltage()
+                 └─ split_legacy_sweeps()
+                      └─ SweepSplitResult
+                           └─ AppState.apply_sweep_result()
+```
+
+- 入力はcatalog内のdescriptor、保存済み役割、画面で指定した分割条件だけで構成する。
+- JSON設定やbasename規則を処理開始条件にしない。
+- seriesまたはroleが変わると、保持中のSweepと進行中taskを無効化する。
+- taskのcallbackはgeneration一致時だけ`AppState`へ適用する。
+- 分割の失敗・キャンセル後もcatalog、Raw表示、役割設定は維持する。

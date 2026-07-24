@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
+from probe_app.application.use_cases import SplitSweeps, SweepSplitRequest
 from probe_app.application.use_cases.open_folder import OpenFolder
 from probe_app.domain.errors import OperationCancelled
 from probe_app.domain.models.raw_series import RawSeriesDescriptor
@@ -65,6 +66,27 @@ class SeriesLoadTask(CancellableTask):
             if self.is_cancelled():
                 raise OperationCancelled()
             self.signals.succeeded.emit(self.generation, series)
+        except OperationCancelled:
+            self.signals.cancelled.emit(self.generation)
+        except Exception as exc:
+            self.signals.failed.emit(self.generation, str(exc), traceback.format_exc())
+
+
+class SweepSplitTask(CancellableTask):
+    def __init__(self, generation: int, request: SweepSplitRequest) -> None:
+        super().__init__(generation)
+        self._request = request
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            result = SplitSweeps().execute(
+                self._request,
+                is_cancelled=self.is_cancelled,
+            )
+            if self.is_cancelled():
+                raise OperationCancelled()
+            self.signals.succeeded.emit(self.generation, result)
         except OperationCancelled:
             self.signals.cancelled.emit(self.generation)
         except Exception as exc:

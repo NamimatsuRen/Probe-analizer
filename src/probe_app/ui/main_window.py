@@ -10,17 +10,19 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
 )
 
 from probe_app.application.ports import RoleAssignmentStore
-from probe_app.application.state.app_state import AppState, LoadStatus
+from probe_app.application.state import AppState, LoadStatus
+from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
-from probe_app.domain.models.series_role import SeriesRoleAssignments
+from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
     DataBrowser,
@@ -28,8 +30,9 @@ from probe_app.ui.widgets import (
     RawPlot,
     RoleAssignmentPanel,
     StatusPanel,
+    SweepSplitPanel,
 )
-from probe_app.ui.workers import FolderScanTask, SeriesLoadTask
+from probe_app.ui.workers import FolderScanTask, SeriesLoadTask, SweepSplitTask
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,18 +60,24 @@ class MainWindow(QMainWindow):
         self._thread_pool = QThreadPool.globalInstance()
         self._scan_generation = 0
         self._load_generation = 0
+        self._sweep_generation = 0
         self._scan_task: FolderScanTask | None = None
         self._load_task: SeriesLoadTask | None = None
+        self._sweep_task: SweepSplitTask | None = None
 
         self._data_browser = DataBrowser()
         self._role_panel = RoleAssignmentPanel()
         self._raw_plot = RawPlot()
         self._metadata = MetadataPanel()
+        self._sweep_panel = SweepSplitPanel()
+        self._details_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
         self._build_toolbar()
         self._data_browser.series_selected.connect(self._load_series)
         self._role_panel.assignments_changed.connect(self._role_assignments_changed)
+        self._sweep_panel.run_requested.connect(self._start_sweep_split)
+        self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -81,9 +90,12 @@ class MainWindow(QMainWindow):
 
         right = QSplitter(Qt.Orientation.Vertical)
         right.addWidget(self._raw_plot)
-        right.addWidget(self._metadata)
+        self._details_tabs.addTab(self._metadata, "Raw情報")
+        self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
+        right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
-        right.setStretchFactor(1, 1)
+        right.setStretchFactor(1, 2)
+        right.setSizes([520, 240])
 
         content = QSplitter(Qt.Orientation.Horizontal)
         content.addWidget(left)
@@ -138,6 +150,8 @@ class MainWindow(QMainWindow):
     def open_folder(self, folder: Path) -> None:
         self._cancel_tasks()
         self._scan_generation += 1
+        self._load_generation += 1
+        self._sweep_generation += 1
         generation = self._scan_generation
         self._state = self._state.start_loading(folder)
         self._settings.setValue("recentFolder", str(folder))
@@ -195,9 +209,11 @@ class MainWindow(QMainWindow):
     def _load_series(self, descriptor_object: object) -> None:
         if not isinstance(descriptor_object, RawSeriesDescriptor):
             return
+        self._invalidate_sweep_task()
         if self._state.catalog is not None:
             self._state = self._state.select_series(descriptor_object.series_id)
             self._activate_role_shot(descriptor_object.shot_id)
+            self._render_sweep_panel()
 
         if self._load_task is not None:
             self._load_task.cancel()
@@ -248,6 +264,7 @@ class MainWindow(QMainWindow):
 
         self._state = self._state.set_role_assignments(shot_id, assignments)
         self._role_panel.set_context(shot_id, descriptors, assignments)
+        self._render_sweep_panel()
         if warning:
             self._role_panel.set_persistence_status(warning, error=True)
         elif assignments.items:
@@ -263,7 +280,9 @@ class MainWindow(QMainWindow):
         if shot_id is None or folder is None:
             return
 
+        self._invalidate_sweep_task()
         self._state = self._state.set_role_assignments(shot_id, assignments_object)
+        self._render_sweep_panel()
         try:
             self._assignment_store.save(folder, shot_id, assignments_object)
         except RoleAssignmentStoreError as error:
@@ -275,6 +294,105 @@ class MainWindow(QMainWindow):
             return
         suffix = "（未割当あり）" if not assignments_object.is_complete else ""
         self._role_panel.set_persistence_status(f"設定を保存しました{suffix}")
+
+    def _start_sweep_split(self) -> None:
+        catalog = self._state.catalog
+        assignments = self._state.role_assignments
+        if catalog is None or not assignments.is_complete:
+            self._state = self._state.fail_sweep_split(
+                "currentとsweep voltageの両方を選択してください"
+            )
+            self._render_sweep_panel()
+            return
+
+        current_assignment = assignments.for_role(SeriesRole.CURRENT)
+        voltage_assignment = assignments.for_role(SeriesRole.SWEEP_VOLTAGE)
+        if current_assignment is None or voltage_assignment is None:
+            return
+        current_descriptor = catalog.find(current_assignment.series_id)
+        voltage_descriptor = catalog.find(voltage_assignment.series_id)
+        if current_descriptor is None or voltage_descriptor is None:
+            self._state = self._state.fail_sweep_split(
+                "割り当てた系列が現在のフォルダにありません",
+                details="フォルダを再読込して役割を設定し直してください。",
+            )
+            self._render_sweep_panel()
+            return
+
+        try:
+            request = SweepSplitRequest(
+                current_descriptor=current_descriptor,
+                voltage_descriptor=voltage_descriptor,
+                assignments=assignments,
+                parameters=self._sweep_panel.parameters(),
+            )
+        except ValueError as error:
+            self._state = self._state.fail_sweep_split(
+                "Sweep分割の入力を準備できません",
+                details=str(error),
+            )
+            self._render_sweep_panel()
+            return
+
+        self._invalidate_sweep_task()
+        generation = self._sweep_generation
+        self._state = self._state.start_sweep_split()
+        self._render_sweep_panel()
+        self._status.set_status(LoadStatus.LOADING, self._state.sweep_message)
+        self._render_actions()
+
+        task = SweepSplitTask(generation, request)
+        task.signals.succeeded.connect(self._sweep_split_succeeded)
+        task.signals.failed.connect(self._sweep_split_failed)
+        task.signals.cancelled.connect(self._sweep_split_cancelled)
+        self._sweep_task = task
+        self._thread_pool.start(task)
+
+    def _sweep_split_succeeded(self, generation: int, result_object: object) -> None:
+        if (
+            generation != self._sweep_generation
+            or not isinstance(result_object, SweepSplitResult)
+        ):
+            return
+        self._sweep_task = None
+        self._state = self._state.apply_sweep_result(
+            result_object.sweeps,
+            interpolated_current=result_object.interpolated_current,
+        )
+        interpolation = (
+            "currentをSweep電圧の時間軸へ補間しました"
+            if result_object.interpolated_current
+            else "2系列の時間軸は一致しています"
+        )
+        self._render_sweep_panel(details=interpolation)
+        self._status.set_status(self._state.status, self._state.sweep_message)
+        self._render_actions()
+
+    def _sweep_split_failed(self, generation: int, message: str, details: str) -> None:
+        if generation != self._sweep_generation:
+            return
+        LOGGER.error("Sweep split failed: %s\n%s", message, details)
+        self._sweep_task = None
+        self._state = self._state.fail_sweep_split(
+            "Sweepへ分割できませんでした。周期点数とsample範囲を確認してください。",
+            details=message,
+        )
+        self._render_sweep_panel()
+        self._status.set_status(
+            self._state.status,
+            self._state.sweep_message,
+            details=message,
+        )
+        self._render_actions()
+
+    def _sweep_split_cancelled(self, generation: int) -> None:
+        if generation != self._sweep_generation:
+            return
+        self._sweep_task = None
+        self._state = self._state.cancel_sweep_split()
+        self._render_sweep_panel()
+        self._status.set_status(self._state.status, self._state.sweep_message)
+        self._render_actions()
 
     def _series_loaded(self, generation: int, series_object: object) -> None:
         if generation != self._load_generation or not isinstance(series_object, RawSeries):
@@ -309,9 +427,13 @@ class MainWindow(QMainWindow):
         self._render_actions()
 
     def _cancel_work(self) -> None:
+        if self._sweep_task is not None:
+            self._cancel_sweep_split()
+            return
         self._cancel_tasks()
         self._scan_generation += 1
         self._load_generation += 1
+        self._sweep_generation += 1
         self._state = self._state.cancel()
         self._raw_plot.clear_plot("読み込みをキャンセルしました")
         self._render_state()
@@ -323,6 +445,22 @@ class MainWindow(QMainWindow):
         if self._load_task is not None:
             self._load_task.cancel()
             self._load_task = None
+        if self._sweep_task is not None:
+            self._sweep_task.cancel()
+            self._sweep_task = None
+
+    def _invalidate_sweep_task(self) -> None:
+        if self._sweep_task is not None:
+            self._sweep_task.cancel()
+            self._sweep_task = None
+        self._sweep_generation += 1
+
+    def _cancel_sweep_split(self) -> None:
+        self._invalidate_sweep_task()
+        self._state = self._state.cancel_sweep_split()
+        self._render_sweep_panel()
+        self._status.set_status(self._state.status, self._state.sweep_message)
+        self._render_actions()
 
     def _render_state(self) -> None:
         details = ""
@@ -332,12 +470,28 @@ class MainWindow(QMainWindow):
                 for problem in self._state.catalog.problems
             )
         self._status.set_status(self._state.status, self._state.message, details=details)
+        self._render_sweep_panel()
         self._render_actions()
 
     def _render_actions(self) -> None:
-        busy = self._scan_task is not None or self._load_task is not None
+        busy = (
+            self._scan_task is not None
+            or self._load_task is not None
+            or self._sweep_task is not None
+        )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)
         self._cancel_action.setEnabled(busy)
+
+    def _render_sweep_panel(self, *, details: str | None = None) -> None:
+        self._sweep_panel.render_state(
+            self._state.sweep_status,
+            self._state.sweep_message,
+            ready=(
+                self._state.catalog is not None
+                and self._state.role_assignments.is_complete
+            ),
+            details=self._state.sweep_error if details is None else details,
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
