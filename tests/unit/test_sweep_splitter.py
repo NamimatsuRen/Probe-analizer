@@ -4,11 +4,12 @@ import numpy as np
 import pytest
 
 from probe_app.domain.errors import SweepSplitError, SweepSplitFailure
-from probe_app.domain.models.sweep import SweepDirection
+from probe_app.domain.models.sweep import SweepDirection, SweepExclusionReason
 from probe_app.domain.services.signal_alignment import AlignedSignals
 from probe_app.domain.services.sweep_splitter import (
     LegacySweepSplitParameters,
     split_legacy_sweeps,
+    split_legacy_sweeps_with_diagnostics,
 )
 
 
@@ -106,3 +107,69 @@ def test_partial_half_cycle_is_not_silently_dropped() -> None:
         )
 
     assert caught.value.failure is SweepSplitFailure.MISALIGNED_WINDOW
+
+
+def test_diagnostics_retains_valid_sweeps_and_every_excluded_interval() -> None:
+    signals = _aligned(
+        [2, 1, 0, 1, 2, 3, 4, 3] * 3 + [2, 1],
+        source_offset=100,
+    )
+
+    diagnostics = split_legacy_sweeps_with_diagnostics(
+        signals,
+        LegacySweepSplitParameters(points_per_cycle=8),
+    )
+
+    assert [
+        (sweep.source_start_index, sweep.source_stop_index)
+        for sweep in diagnostics.sweeps
+    ] == [
+        (102, 106),
+        (106, 110),
+        (110, 114),
+        (114, 118),
+    ]
+    assert [
+        (
+            exclusion.source_start_index,
+            exclusion.source_stop_index,
+            exclusion.reason,
+        )
+        for exclusion in diagnostics.exclusions
+    ] == [
+        (100, 102, SweepExclusionReason.ALIGNMENT_PREFIX),
+        (118, 120, SweepExclusionReason.INCOMPLETE_SWEEP),
+        (120, 126, SweepExclusionReason.ALIGNMENT_SUFFIX),
+    ]
+    assert sum(item.point_count for item in diagnostics.exclusions) == 10
+
+
+def test_golden_boundaries_allow_zero_sample_error() -> None:
+    cycle = [0, 1, 2, 3, 4, 3, 2, 1]
+    signals = _aligned(cycle * 3, source_offset=100)
+    expected_boundaries = ((100, 104), (104, 108), (108, 112), (112, 116))
+
+    diagnostics = split_legacy_sweeps_with_diagnostics(
+        signals,
+        LegacySweepSplitParameters(points_per_cycle=8),
+    )
+    actual_boundaries = tuple(
+        (sweep.source_start_index, sweep.source_stop_index)
+        for sweep in diagnostics.sweeps
+    )
+
+    boundary_errors = tuple(
+        max(abs(actual_start - expected_start), abs(actual_stop - expected_stop))
+        for (actual_start, actual_stop), (expected_start, expected_stop) in zip(
+            actual_boundaries,
+            expected_boundaries,
+            strict=True,
+        )
+    )
+    assert boundary_errors == (0, 0, 0, 0)
+    assert [sweep.direction for sweep in diagnostics.sweeps] == [
+        SweepDirection.UP,
+        SweepDirection.DOWN,
+        SweepDirection.UP,
+        SweepDirection.DOWN,
+    ]

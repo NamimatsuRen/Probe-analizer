@@ -61,9 +61,9 @@ Sweep分割のアプリ状態はフォルダ読込状態から分け、`idle / r
 cancelled / error`として保持する。これにより分割失敗やキャンセルが、正常に読み込めている
 Rawカタログを消さない。
 
-## 次の境界
+## Level 2で確立した境界
 
-Level 2では次を追加する。
+Level 2では次を追加した。
 
 1. フォルダから見つけた系列へ `current` / `sweep_voltage` の役割を割り当てる。
 2. 役割と装置固有倍率を、JSON入力ではなく画面操作と保存可能な設定として扱う。
@@ -132,3 +132,14 @@ SweepSplitPanel
 - seriesまたはroleが変わると、保持中のSweepと進行中taskを無効化する。
 - taskのcallbackはgeneration一致時だけ`AppState`へ適用する。
 - 分割の失敗・キャンセル後もcatalog、Raw表示、役割設定は維持する。
+
+### Sweep選択とLevel 3差込境界
+
+- Sweep選択IDの正規ソースは`AppState.selected_sweep_id`とする。
+- folder、shot/role、seriesの上位選択が変わると、Sweep結果と選択を同時に無効化する。
+- 選択済み`Sweep`をRaw highlight、I–V、解析previewへ渡し、各表示が別のIDを持たないようにする。
+- `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
+- Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
+
+詳細なGate結果は
+[Level 2基盤レビュー](reviews/level2-foundation-2026-07-24.md)に記録する。

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 import numpy as np
 
 from probe_app.domain.errors import SweepSplitError, SweepSplitFailure
-from probe_app.domain.models.sweep import Sweep, SweepDirection
+from probe_app.domain.models.sweep import (
+    Sweep,
+    SweepDirection,
+    SweepExclusion,
+    SweepExclusionReason,
+)
 from probe_app.domain.services.signal_alignment import AlignedSignals
 
 
@@ -16,6 +21,14 @@ class LegacySweepSplitParameters:
     points_per_cycle: int
     sample_start: int = 0
     sample_stop: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SweepSplitDiagnostics:
+    """Valid Sweeps plus every source interval excluded by legacy alignment."""
+
+    sweeps: tuple[Sweep, ...]
+    exclusions: tuple[SweepExclusion, ...]
 
 
 def _validated_window(
@@ -58,6 +71,33 @@ def split_legacy_sweeps(
     ``sweep_sort`` behavior. Incomplete half-cycles are rejected explicitly.
     """
 
+    diagnostics = split_legacy_sweeps_with_diagnostics(signals, parameters)
+    incomplete = next(
+        (
+            exclusion
+            for exclusion in diagnostics.exclusions
+            if exclusion.reason is SweepExclusionReason.INCOMPLETE_SWEEP
+        ),
+        None,
+    )
+    if incomplete is not None:
+        half_cycle = parameters.points_per_cycle // 2
+        raise SweepSplitError(
+            SweepSplitFailure.MISALIGNED_WINDOW,
+            (
+                f"{incomplete.point_count} usable points remain after complete "
+                f"half-cycles of {half_cycle} points"
+            ),
+        )
+    return diagnostics.sweeps
+
+
+def split_legacy_sweeps_with_diagnostics(
+    signals: AlignedSignals,
+    parameters: LegacySweepSplitParameters,
+) -> SweepSplitDiagnostics:
+    """Split complete Sweeps and retain every excluded source interval."""
+
     window_start, window_stop, points_per_cycle = _validated_window(signals, parameters)
     half_cycle = points_per_cycle // 2
     first_cycle = signals.sweep_voltage_v[
@@ -73,15 +113,12 @@ def split_legacy_sweeps(
             SweepSplitFailure.INSUFFICIENT_DATA,
             "minimum alignment leaves fewer than one half-cycle",
         )
-    if usable_points % half_cycle:
-        raise SweepSplitError(
-            SweepSplitFailure.MISALIGNED_WINDOW,
-            f"{usable_points} usable points are not divisible by half-cycle {half_cycle}",
-        )
+    remainder = usable_points % half_cycle
+    complete_stop = aligned_stop - remainder
 
     sweeps: list[Sweep] = []
     source_offset = signals.voltage_source_start_index
-    for index, local_start in enumerate(range(aligned_start, aligned_stop, half_cycle)):
+    for index, local_start in enumerate(range(aligned_start, complete_stop, half_cycle)):
         local_stop = local_start + half_cycle
         source_start = source_offset + local_start
         source_stop = source_offset + local_stop
@@ -105,4 +142,55 @@ def split_legacy_sweeps(
                 ),
             )
         )
-    return tuple(sweeps)
+
+    exclusions: list[SweepExclusion] = []
+    if aligned_start > window_start:
+        exclusions.append(
+            _exclusion(
+                signals,
+                window_start,
+                aligned_start,
+                SweepExclusionReason.ALIGNMENT_PREFIX,
+                "先頭を最初の最小電圧へ揃えるため除外",
+            )
+        )
+    if complete_stop < aligned_stop:
+        exclusions.append(
+            _exclusion(
+                signals,
+                complete_stop,
+                aligned_stop,
+                SweepExclusionReason.INCOMPLETE_SWEEP,
+                f"{half_cycle}点のSweepに満たない端数のため除外",
+            )
+        )
+    if aligned_stop < window_stop:
+        exclusions.append(
+            _exclusion(
+                signals,
+                aligned_stop,
+                window_stop,
+                SweepExclusionReason.ALIGNMENT_SUFFIX,
+                "旧方式の周期境界を保つため末尾を除外",
+            )
+        )
+    return SweepSplitDiagnostics(tuple(sweeps), tuple(exclusions))
+
+
+def _exclusion(
+    signals: AlignedSignals,
+    local_start: int,
+    local_stop: int,
+    reason: SweepExclusionReason,
+    detail: str,
+) -> SweepExclusion:
+    source_offset = signals.voltage_source_start_index
+    return SweepExclusion(
+        voltage_series_id=signals.voltage_series_id,
+        source_start_index=source_offset + local_start,
+        source_stop_index=source_offset + local_stop,
+        start_time_s=float(signals.time_s[local_start]),
+        end_time_s=float(signals.time_s[local_stop - 1]),
+        reason=reason,
+        detail=detail,
+    )

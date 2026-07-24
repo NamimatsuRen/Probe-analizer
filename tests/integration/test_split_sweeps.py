@@ -16,6 +16,7 @@ from probe_app.domain.models import (
     SeriesRole,
     SeriesRoleAssignments,
     SignalTransform,
+    SweepExclusionReason,
 )
 from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from tests.conftest import write_panta_series
@@ -86,6 +87,12 @@ def test_folder_assigned_series_are_loaded_aligned_and_split(tmp_path: Path) -> 
         16,
         20,
     ]
+    assert result.exclusion_count == 1
+    assert result.exclusions[0].reason is SweepExclusionReason.ALIGNMENT_SUFFIX
+    assert (
+        result.exclusions[0].source_start_index,
+        result.exclusions[0].source_stop_index,
+    ) == (24, 32)
 
 
 def test_split_can_be_cancelled_before_loading(tmp_path: Path) -> None:

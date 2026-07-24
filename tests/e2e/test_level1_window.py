@@ -215,14 +215,23 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
 
     sweep_count: int = len(window._state.sweeps)  # noqa: SLF001
     assert sweep_count == 6
+    assert len(window._state.sweep_exclusions) == 1  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 6  # noqa: SLF001
+    assert window._sweep_browser.exclusion_count == 1  # noqa: SLF001
+    exclusion_item = window._sweep_browser._issues_tree.topLevelItem(0)  # noqa: SLF001
+    assert exclusion_item.text(0) == "24–31"
+    assert exclusion_item.text(3) == "末尾の周期合わせ"
     assert window._sweep_browser.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._state.selected_sweep_id == window._state.sweeps[0].sweep_id
+    )
     first_sweep_item = window._sweep_browser._tree.topLevelItem(0)  # noqa: SLF001
     assert first_sweep_item.text(0) == "1"
     assert first_sweep_item.text(1) == "↑ 上昇"
     assert first_sweep_item.text(4) == "4"
     assert window._raw_plot.highlighted_sweep == window._state.sweeps[0]  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
+    assert window._analysis_preview.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     assert (  # noqa: SLF001
@@ -233,8 +242,10 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     second_sweep = window._state.sweeps[1]  # noqa: SLF001
     window._next_sweep_action.trigger()  # noqa: SLF001
     assert window._sweep_browser.selected_sweep == second_sweep  # noqa: SLF001
+    assert window._state.selected_sweep == second_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == second_sweep  # noqa: SLF001
+    assert window._analysis_preview.selected_sweep == second_sweep  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     np.testing.assert_allclose(  # noqa: SLF001
@@ -282,9 +293,13 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
 
     window._load_series(voltage_descriptor)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
+    assert window._state.sweep_exclusions == ()  # noqa: SLF001
+    assert window._state.selected_sweep_id is None  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
+    assert window._sweep_browser.exclusion_count == 0  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep is None  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep is None  # noqa: SLF001
+    assert window._analysis_preview.selected_sweep is None  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001

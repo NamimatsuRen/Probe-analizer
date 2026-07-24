@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from probe_app.domain.errors import OperationCancelled
 from probe_app.domain.models.raw_series import RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
-from probe_app.domain.models.sweep import Sweep
+from probe_app.domain.models.sweep import Sweep, SweepExclusion
 from probe_app.domain.services.signal_alignment import align_current_and_voltage
 from probe_app.domain.services.sweep_splitter import (
     LegacySweepSplitParameters,
-    split_legacy_sweeps,
+    split_legacy_sweeps_with_diagnostics,
 )
 from probe_app.infrastructure.readers.panta_reader import PantaRawReader
 
@@ -46,10 +46,15 @@ class SweepSplitResult:
     voltage_series_id: str
     interpolated_current: bool
     parameters: LegacySweepSplitParameters
+    exclusions: tuple[SweepExclusion, ...] = ()
 
     @property
     def sweep_count(self) -> int:
         return len(self.sweeps)
+
+    @property
+    def exclusion_count(self) -> int:
+        return len(self.exclusions)
 
 
 class SplitSweeps:
@@ -81,15 +86,19 @@ class SplitSweeps:
         self._raise_if_cancelled(is_cancelled)
         aligned = align_current_and_voltage(current, voltage)
         self._raise_if_cancelled(is_cancelled)
-        sweeps = split_legacy_sweeps(aligned, request.parameters)
+        diagnostics = split_legacy_sweeps_with_diagnostics(
+            aligned,
+            request.parameters,
+        )
         self._raise_if_cancelled(is_cancelled)
 
         return SweepSplitResult(
-            sweeps=sweeps,
+            sweeps=diagnostics.sweeps,
             current_series_id=aligned.current_series_id,
             voltage_series_id=aligned.voltage_series_id,
             interpolated_current=aligned.interpolated_current,
             parameters=request.parameters,
+            exclusions=diagnostics.exclusions,
         )
 
     @staticmethod
