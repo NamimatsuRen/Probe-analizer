@@ -2,8 +2,8 @@
 
 プローブ測定データを、フォルダから直接選んで確認・解析するデスクトップアプリです。
 
-現在は開発ロードマップの **Level 2** を段階実装中です。フォルダからRaw波形を確認し、
-同一shotのcurrent／sweep voltageを割り当ててSweep分割まで実行できます。
+開発ロードマップの **Level 2** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
+current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認まで実行できます。
 
 ## 現在できること
 
@@ -23,6 +23,12 @@
 - 割り当てた2系列の読込・時間軸整合・Sweep分割をバックグラウンド実行
 - 分割処理のキャンセルと、系列切替後に返った古い結果の破棄
 - 分割したSweep数と、currentの時間軸補間有無を画面で確認
+- Sweep一覧で番号、方向、時間、点数、電圧範囲を確認
+- 選択SweepのRaw時系列区間をorange highlightで表示
+- 選択SweepのI–Vを電圧昇順で表示し、取得始点・終点を区別
+- ツールバーまたは`Alt+Left` / `Alt+Right`で前後Sweepへ移動
+- 周期合わせ・短い端数などの未分割区間をsample範囲と理由付きで表示
+- Level 3解析をreader変更なしで追加するpreview接続
 
 ## 対応するフォルダ
 
@@ -66,8 +72,6 @@ uv run mypy
 ## 現段階で意図的に行わないこと
 
 - currentチャンネルとsweep voltageチャンネルの自動決定
-- Sweep一覧からの個別選択
-- Raw時系列上のSweep区間ハイライトとI–V表示
 - 平滑化、微分、浮遊電位・プラズマ電位・温度フィット
 
 current／sweep voltageは自動決定せず、利用者が画面から指定します。Rawプロットには`.hdr`の
@@ -86,8 +90,8 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 - フォルダ・shot別の役割／倍率／符号の保存と復元
 
 役割や倍率の入力にJSONファイルは要求しません。設定は測定フォルダではなくOSのアプリ設定へ
-保存します。Sweep分割は「Sweep分割」タブから実行できます。現時点ではSweep Browser・
-Raw区間ハイライト・I–V表示は未接続です。
+保存します。Sweep分割は「Sweep分割」タブから実行でき、結果は「Sweep一覧」と「I–V」で
+確認できます。上位のfolder／shot／seriesを変更すると、古いSweep選択と表示は同時に消去されます。
 
 ## 設計資料
 
@@ -95,4 +99,8 @@ Raw区間ハイライト・I–V表示は未接続です。
 - [フォルダ・データ契約](docs/data-contract.md)
 - [GitHub Issue投入用バックログ](docs/github-issue-backlog.md)
 - [Level 1実データ確認・性能測定](docs/benchmarks/level1-2026-07-23.md)
+- [Level 2 golden Sweep仕様](docs/testing/level2-golden-sweep.md)
+- [Level 2性能測定](docs/benchmarks/level2-2026-07-24.md)
+- [Level 2利用テスト](docs/usability/level2-sweep-2026-07-24.md)
+- [Level 2基盤レビュー](docs/reviews/level2-foundation-2026-07-24.md)
 - [ADR: フォルダ起点の入力](docs/adr/0002-folder-first-input.md)

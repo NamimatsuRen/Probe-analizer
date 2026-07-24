@@ -26,6 +26,7 @@ from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignment
 from probe_app.domain.models.sweep import Sweep
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
+    AnalysisPreviewPanel,
     DataBrowser,
     MetadataPanel,
     RawPlot,
@@ -75,6 +76,7 @@ class MainWindow(QMainWindow):
         self._sweep_panel = SweepSplitPanel()
         self._sweep_browser = SweepBrowser()
         self._sweep_iv_plot = SweepIVPlot()
+        self._analysis_preview = AnalysisPreviewPanel()
         self._details_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
@@ -100,6 +102,7 @@ class MainWindow(QMainWindow):
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
         self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
         self._details_tabs.addTab(self._sweep_iv_plot, "I–V")
+        self._details_tabs.addTab(self._analysis_preview, "解析プレビュー")
         right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 2)
@@ -382,6 +385,7 @@ class MainWindow(QMainWindow):
         self._state = self._state.apply_sweep_result(
             result_object.sweeps,
             interpolated_current=result_object.interpolated_current,
+            exclusions=result_object.exclusions,
         )
         interpolation = (
             "currentをSweep電圧の時間軸へ補間しました"
@@ -432,8 +436,13 @@ class MainWindow(QMainWindow):
 
     def _sweep_selected(self, sweep_object: object) -> None:
         if isinstance(sweep_object, Sweep):
-            self._raw_plot.highlight_sweep(sweep_object)
-            self._sweep_iv_plot.show_sweep(sweep_object)
+            self._state = self._state.select_sweep(sweep_object.sweep_id)
+            selected_sweep = self._state.selected_sweep
+            if selected_sweep is None:
+                return
+            self._raw_plot.highlight_sweep(selected_sweep)
+            self._sweep_iv_plot.show_sweep(selected_sweep)
+            self._analysis_preview.show_sweep(selected_sweep)
             self._render_actions()
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
@@ -531,10 +540,17 @@ class MainWindow(QMainWindow):
         self._sweep_browser.render_state(
             self._state.sweep_status,
             self._state.sweeps,
+            self._state.sweep_exclusions,
             self._state.sweep_message,
         )
-        selected_sweep = self._sweep_browser.selected_sweep
+        selected_sweep = self._state.selected_sweep
         if self._state.sweeps and selected_sweep is not None:
+            browser_selection = self._sweep_browser.selected_sweep
+            if (
+                browser_selection is None
+                or browser_selection.sweep_id != selected_sweep.sweep_id
+            ):
+                self._sweep_browser.select_sweep(selected_sweep.sweep_id)
             highlighted_sweep = self._raw_plot.highlighted_sweep
             if (
                 highlighted_sweep is None
@@ -544,9 +560,16 @@ class MainWindow(QMainWindow):
             plotted_sweep = self._sweep_iv_plot.selected_sweep
             if plotted_sweep is None or plotted_sweep.sweep_id != selected_sweep.sweep_id:
                 self._sweep_iv_plot.show_sweep(selected_sweep)
+            previewed_sweep = self._analysis_preview.selected_sweep
+            if (
+                previewed_sweep is None
+                or previewed_sweep.sweep_id != selected_sweep.sweep_id
+            ):
+                self._analysis_preview.show_sweep(selected_sweep)
         else:
             self._raw_plot.clear_sweep_highlight()
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
+            self._analysis_preview.clear(self._state.sweep_message)
         self._render_actions()
 
     def closeEvent(self, event: QCloseEvent) -> None:

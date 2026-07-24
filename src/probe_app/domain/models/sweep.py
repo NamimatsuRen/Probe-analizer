@@ -15,6 +15,45 @@ class SweepDirection(StrEnum):
     DOWN = "down"
 
 
+class SweepExclusionReason(StrEnum):
+    """Why a source interval was not emitted as a valid Sweep."""
+
+    ALIGNMENT_PREFIX = "alignment_prefix"
+    ALIGNMENT_SUFFIX = "alignment_suffix"
+    INCOMPLETE_SWEEP = "incomplete_sweep"
+
+
+@dataclass(frozen=True, slots=True)
+class SweepExclusion:
+    """A non-empty source interval intentionally excluded from valid Sweeps."""
+
+    voltage_series_id: str
+    source_start_index: int
+    source_stop_index: int
+    start_time_s: float
+    end_time_s: float
+    reason: SweepExclusionReason
+    detail: str
+
+    def __post_init__(self) -> None:
+        if not self.voltage_series_id.strip():
+            raise ValueError("voltage_series_id cannot be empty")
+        if self.source_start_index < 0:
+            raise ValueError("source_start_index cannot be negative")
+        if self.source_stop_index <= self.source_start_index:
+            raise ValueError("source_stop_index must be greater than source_start_index")
+        if not np.isfinite(self.start_time_s) or not np.isfinite(self.end_time_s):
+            raise ValueError("exclusion times must be finite")
+        if self.end_time_s < self.start_time_s:
+            raise ValueError("end_time_s cannot precede start_time_s")
+        if not self.detail.strip():
+            raise ValueError("detail cannot be empty")
+
+    @property
+    def point_count(self) -> int:
+        return self.source_stop_index - self.source_start_index
+
+
 @dataclass(frozen=True, slots=True)
 class Sweep:
     """One half-cycle of an I–V acquisition.

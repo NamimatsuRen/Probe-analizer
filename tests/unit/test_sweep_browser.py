@@ -3,7 +3,12 @@ from __future__ import annotations
 import numpy as np
 
 from probe_app.application.state import SweepRunStatus
-from probe_app.domain.models.sweep import Sweep, SweepDirection
+from probe_app.domain.models.sweep import (
+    Sweep,
+    SweepDirection,
+    SweepExclusion,
+    SweepExclusionReason,
+)
 from probe_app.ui.widgets import SweepBrowser
 
 
@@ -33,7 +38,7 @@ def test_sweep_browser_displays_required_metadata(qtbot: object) -> None:
         _sweep(1, SweepDirection.DOWN),
     )
 
-    browser.render_state(SweepRunStatus.SUCCEEDED, sweeps, "2 Sweepへ分割しました")
+    browser.render_state(SweepRunStatus.SUCCEEDED, sweeps, (), "2 Sweepへ分割しました")
 
     assert browser.sweep_count == 2
     assert browser.selected_sweep == sweeps[0]
@@ -69,7 +74,7 @@ def test_sweep_browser_emits_selection_and_clears_invalidated_results(
     assert browser.selected_sweep == sweeps[1]
     assert selected[-1] == sweeps[1]
 
-    browser.render_state(SweepRunStatus.READY, (), "Sweep分割を実行できます")
+    browser.render_state(SweepRunStatus.READY, (), (), "Sweep分割を実行できます")
 
     assert browser.sweep_count == 0
     assert browser.selected_sweep is None
@@ -118,3 +123,39 @@ def test_sweep_browser_navigates_without_leaving_the_available_range(
 
     assert browser.select_previous()
     assert browser.selected_sweep == sweeps[1]
+
+
+def test_sweep_browser_displays_excluded_intervals_separately(
+    qtbot: object,
+) -> None:
+    browser = SweepBrowser()
+    qtbot.addWidget(browser)  # type: ignore[attr-defined]
+    exclusion = SweepExclusion(
+        voltage_series_id="shot-001/voltage",
+        source_start_index=12,
+        source_stop_index=15,
+        start_time_s=0.12,
+        end_time_s=0.14,
+        reason=SweepExclusionReason.INCOMPLETE_SWEEP,
+        detail="4点のSweepに満たない端数のため除外",
+    )
+
+    browser.render_state(
+        SweepRunStatus.SUCCEEDED,
+        (_sweep(0, SweepDirection.UP),),
+        (exclusion,),
+        "1 Sweepへ分割しました（1区間を除外）",
+    )
+
+    assert browser.sweep_count == 1
+    assert browser.exclusion_count == 1
+    assert not browser._issues_heading.isHidden()  # noqa: SLF001
+    assert browser._issues_tree.topLevelItemCount() == 1  # noqa: SLF001
+    issue = browser._issues_tree.topLevelItem(0)  # noqa: SLF001
+    assert [issue.text(column) for column in range(4)] == [
+        "12–14",
+        "0.12 – 0.14",
+        "3",
+        "短い未完了Sweep",
+    ]
+    assert "満たない" in issue.toolTip(3)

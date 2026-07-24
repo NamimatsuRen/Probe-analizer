@@ -6,7 +6,7 @@ from pathlib import Path
 
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.series_role import SeriesRoleAssignments
-from probe_app.domain.models.sweep import Sweep
+from probe_app.domain.models.sweep import Sweep, SweepExclusion
 
 
 class LoadStatus(StrEnum):
@@ -38,6 +38,8 @@ class AppState:
     role_assignments: SeriesRoleAssignments = field(default_factory=SeriesRoleAssignments)
     sweep_status: SweepRunStatus = SweepRunStatus.IDLE
     sweeps: tuple[Sweep, ...] = ()
+    sweep_exclusions: tuple[SweepExclusion, ...] = ()
+    selected_sweep_id: str | None = None
     sweep_interpolated_current: bool | None = None
     sweep_message: str = "解析系列の役割を選択してください"
     sweep_error: str = ""
@@ -54,6 +56,8 @@ class AppState:
             role_assignments=SeriesRoleAssignments(),
             sweep_status=SweepRunStatus.IDLE,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
@@ -72,6 +76,8 @@ class AppState:
                 role_assignments=SeriesRoleAssignments(),
                 sweep_status=SweepRunStatus.IDLE,
                 sweeps=(),
+                sweep_exclusions=(),
+                selected_sweep_id=None,
                 sweep_interpolated_current=None,
                 sweep_message="解析系列の役割を選択してください",
                 sweep_error="",
@@ -92,6 +98,8 @@ class AppState:
             role_assignments=SeriesRoleAssignments(),
             sweep_status=SweepRunStatus.IDLE,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
@@ -110,6 +118,8 @@ class AppState:
                 else SweepRunStatus.IDLE
             ),
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message=(
                 "Sweep分割を実行できます"
@@ -148,6 +158,8 @@ class AppState:
                 SweepRunStatus.READY if assignments.is_complete else SweepRunStatus.IDLE
             ),
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message=(
                 "Sweep分割を実行できます"
@@ -164,6 +176,8 @@ class AppState:
             self,
             sweep_status=SweepRunStatus.RUNNING,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message="2系列を読み込み、Sweepへ分割しています…",
             sweep_error="",
@@ -174,6 +188,7 @@ class AppState:
         sweeps: tuple[Sweep, ...],
         *,
         interpolated_current: bool,
+        exclusions: tuple[SweepExclusion, ...] = (),
     ) -> AppState:
         if self.sweep_status is not SweepRunStatus.RUNNING:
             raise ValueError("Sweep result can only be applied while a split is running")
@@ -181,8 +196,13 @@ class AppState:
             self,
             sweep_status=SweepRunStatus.SUCCEEDED,
             sweeps=sweeps,
+            sweep_exclusions=exclusions,
+            selected_sweep_id=sweeps[0].sweep_id if sweeps else None,
             sweep_interpolated_current=interpolated_current,
-            sweep_message=f"{len(sweeps)} Sweepへ分割しました",
+            sweep_message=(
+                f"{len(sweeps)} Sweepへ分割しました"
+                + (f"（{len(exclusions)}区間を除外）" if exclusions else "")
+            ),
             sweep_error="",
         )
 
@@ -191,6 +211,8 @@ class AppState:
             self,
             sweep_status=SweepRunStatus.ERROR,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message=message,
             sweep_error=details,
@@ -201,6 +223,8 @@ class AppState:
             self,
             sweep_status=SweepRunStatus.CANCELLED,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message=(
                 "Sweep分割をキャンセルしました。再実行できます"
@@ -220,6 +244,8 @@ class AppState:
             role_assignments=SeriesRoleAssignments(),
             sweep_status=SweepRunStatus.IDLE,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
@@ -236,8 +262,28 @@ class AppState:
             role_assignments=SeriesRoleAssignments(),
             sweep_status=SweepRunStatus.IDLE,
             sweeps=(),
+            sweep_exclusions=(),
+            selected_sweep_id=None,
             sweep_interpolated_current=None,
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
             message="読み込みをキャンセルしました",
         )
+
+    @property
+    def selected_sweep(self) -> Sweep | None:
+        if self.selected_sweep_id is None:
+            return None
+        return next(
+            (
+                sweep
+                for sweep in self.sweeps
+                if sweep.sweep_id == self.selected_sweep_id
+            ),
+            None,
+        )
+
+    def select_sweep(self, sweep_id: str) -> AppState:
+        if not any(sweep.sweep_id == sweep_id for sweep in self.sweeps):
+            raise ValueError(f"unknown sweep_id: {sweep_id}")
+        return replace(self, selected_sweep_id=sweep_id)

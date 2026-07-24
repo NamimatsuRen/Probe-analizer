@@ -9,7 +9,12 @@ from probe_app.domain.models.series_role import (
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
-from probe_app.domain.models.sweep import Sweep, SweepDirection
+from probe_app.domain.models.sweep import (
+    Sweep,
+    SweepDirection,
+    SweepExclusion,
+    SweepExclusionReason,
+)
 
 __all__ = [
     "AssignedSeries",
@@ -23,6 +28,8 @@ __all__ = [
     "SignalTransform",
     "Sweep",
     "SweepDirection",
+    "SweepExclusion",
+    "SweepExclusionReason",
     "legacy_current_transform",
     "legacy_sweep_voltage_transform",
 ]
