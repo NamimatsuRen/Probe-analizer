@@ -30,6 +30,7 @@ from probe_app.ui.widgets import (
     RawPlot,
     RoleAssignmentPanel,
     StatusPanel,
+    SweepBrowser,
     SweepSplitPanel,
 )
 from probe_app.ui.workers import FolderScanTask, SeriesLoadTask, SweepSplitTask
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self._raw_plot = RawPlot()
         self._metadata = MetadataPanel()
         self._sweep_panel = SweepSplitPanel()
+        self._sweep_browser = SweepBrowser()
         self._details_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
@@ -92,6 +94,7 @@ class MainWindow(QMainWindow):
         right.addWidget(self._raw_plot)
         self._details_tabs.addTab(self._metadata, "Raw情報")
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
+        self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
         right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 2)
@@ -491,6 +494,11 @@ class MainWindow(QMainWindow):
                 and self._state.role_assignments.is_complete
             ),
             details=self._state.sweep_error if details is None else details,
+        )
+        self._sweep_browser.render_state(
+            self._state.sweep_status,
+            self._state.sweeps,
+            self._state.sweep_message,
         )
 
     def closeEvent(self, event: QCloseEvent) -> None:
