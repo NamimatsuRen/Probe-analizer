@@ -24,7 +24,7 @@ ui/widgets
 - `application`: domainと、ユースケースに必要な境界だけを知る。
 - `infrastructure`: フォルダ、PANTA/Yokogawaファイルなど外部形式を解釈する。
 - `ui`: applicationを呼び出し、domainの結果を表示する。
-- `analysis`: Level 3以降に追加する。PySide6をimportしない。
+- `analysis`: GUI非依存の平滑化・微分と、Level 4以降の解析を保持する。PySide6をimportしない。
 
 ## Level 1の主要コンポーネント
 
@@ -135,14 +135,34 @@ SweepSplitPanel
 - taskのcallbackはgeneration一致時だけ`AppState`へ適用する。
 - 分割の失敗・キャンセル後もcatalog、Raw表示、役割設定は維持する。
 
-### Sweep選択とLevel 3差込境界
+### Sweep選択とLevel 3解析境界
 
 - Sweep選択IDの正規ソースは`AppState.selected_sweep_id`とする。
 - folder、shot/role、seriesの上位選択が変わると、Sweep結果と選択を同時に無効化する。
-- 選択済み`Sweep`をRaw highlight、I–V、解析previewへ渡し、各表示が別のIDを持たないようにする。
+- 選択済み`Sweep`をRaw highlight、I–V、平滑化・微分へ渡し、各表示が別のIDを持たないようにする。
 - I–Vを上部の主表示、Raw波形を下部タブの補助表示とし、I–Vは設定・一覧操作中も維持する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
 - Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
 
 詳細なGate結果は
 [Level 2基盤レビュー](reviews/level2-foundation-2026-07-24.md)に記録する。
+
+## Level 3で追加した境界
+
+```text
+AppState.selected_sweep_id
+  └─ Sweep
+       └─ preprocess_sweep()                  analysis（GUI非依存）
+            └─ PreprocessedSweep
+                 ├─ SweepIVPlot               Raw / Filtered / dI/dV
+                 └─ PreprocessingPanel        設定・実使用窓・警告
+```
+
+- `SavitzkyGolaySettings`は利用者が指定した窓と次数だけを保持する。
+- `safe_savgol_window()`は実データ点数から実際に使う奇数窓を決める。
+- `PreprocessedSweep`は同じ電圧軸上のRaw、Filtered、`dI/dV`と、計算条件を保持する。
+- 設定変更は選択済み`Sweep`だけを同期計算し、reader・時間軸整合・Sweep分割を呼び直さない。
+- folder、role、seriesの変更で`AppState.selected_sweep_id`が消えると、前処理結果も同時に消す。
+- 10,000点・窓501の実測中央値は2.181 msであり、GUIスレッド内計算でも200 ms目標に十分な
+  余裕がある。点数・窓が大幅に増える場合はbackground化を再評価する。
+- architecture testで`domain`と`analysis`からPySide6・pyqtgraphへの依存がないことを固定する。

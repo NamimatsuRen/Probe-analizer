@@ -16,6 +16,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from probe_app.analysis import (
+    PreprocessingError,
+    SavitzkyGolaySettings,
+    preprocess_sweep,
+)
 from probe_app.application.ports import RoleAssignmentStore
 from probe_app.application.state import AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
@@ -26,9 +31,9 @@ from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignment
 from probe_app.domain.models.sweep import Sweep
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
-    AnalysisPreviewPanel,
     DataBrowser,
     MetadataPanel,
+    PreprocessingPanel,
     RawPlot,
     RoleAssignmentPanel,
     StatusPanel,
@@ -76,7 +81,7 @@ class MainWindow(QMainWindow):
         self._sweep_panel = SweepSplitPanel()
         self._sweep_browser = SweepBrowser()
         self._sweep_iv_plot = SweepIVPlot()
-        self._analysis_preview = AnalysisPreviewPanel()
+        self._preprocessing_panel = PreprocessingPanel()
         self._details_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
@@ -86,6 +91,9 @@ class MainWindow(QMainWindow):
         self._sweep_panel.run_requested.connect(self._start_sweep_split)
         self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
         self._sweep_browser.sweep_selected.connect(self._sweep_selected)
+        self._preprocessing_panel.run_requested.connect(
+            self._preprocessing_requested
+        )
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -104,7 +112,7 @@ class MainWindow(QMainWindow):
         self._details_tabs.addTab(self._metadata, "Raw情報")
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
         self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
-        self._details_tabs.addTab(self._analysis_preview, "解析プレビュー")
+        self._details_tabs.addTab(self._preprocessing_panel, "平滑化・微分")
         right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 2)
@@ -450,8 +458,37 @@ class MainWindow(QMainWindow):
                 return
             self._raw_plot.highlight_sweep(selected_sweep)
             self._sweep_iv_plot.show_sweep(selected_sweep)
-            self._analysis_preview.show_sweep(selected_sweep)
+            self._apply_preprocessing(
+                selected_sweep,
+                self._preprocessing_panel.settings(),
+            )
             self._render_actions()
+
+    def _preprocessing_requested(self, settings_object: object) -> None:
+        if not isinstance(settings_object, SavitzkyGolaySettings):
+            return
+        selected_sweep = self._state.selected_sweep
+        if selected_sweep is None:
+            self._preprocessing_panel.clear(
+                "Sweepを選択してから前処理を実行してください"
+            )
+            return
+        self._apply_preprocessing(selected_sweep, settings_object)
+
+    def _apply_preprocessing(
+        self,
+        sweep: Sweep,
+        settings: SavitzkyGolaySettings,
+    ) -> None:
+        try:
+            result = preprocess_sweep(sweep, settings)
+        except (PreprocessingError, ValueError) as error:
+            LOGGER.info("Sweep preprocessing failed for %s: %s", sweep.sweep_id, error)
+            self._sweep_iv_plot.clear_preprocessing("dI/dV — 設定を確認してください")
+            self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
+            return
+        self._sweep_iv_plot.show_preprocessing(result)
+        self._preprocessing_panel.show_result(result)
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._load_generation:
@@ -568,16 +605,18 @@ class MainWindow(QMainWindow):
             plotted_sweep = self._sweep_iv_plot.selected_sweep
             if plotted_sweep is None or plotted_sweep.sweep_id != selected_sweep.sweep_id:
                 self._sweep_iv_plot.show_sweep(selected_sweep)
-            previewed_sweep = self._analysis_preview.selected_sweep
-            if (
-                previewed_sweep is None
-                or previewed_sweep.sweep_id != selected_sweep.sweep_id
-            ):
-                self._analysis_preview.show_sweep(selected_sweep)
+            preprocessed = self._preprocessing_panel.result
+            if preprocessed is None or preprocessed.sweep_id != selected_sweep.sweep_id:
+                self._apply_preprocessing(
+                    selected_sweep,
+                    self._preprocessing_panel.settings(),
+                )
+            elif self._sweep_iv_plot.preprocessed is not preprocessed:
+                self._sweep_iv_plot.show_preprocessing(preprocessed)
         else:
             self._raw_plot.clear_sweep_highlight()
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
-            self._analysis_preview.clear(self._state.sweep_message)
+            self._preprocessing_panel.clear(self._state.sweep_message)
         self._render_actions()
 
     def closeEvent(self, event: QCloseEvent) -> None:

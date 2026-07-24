@@ -9,8 +9,10 @@ Notion「段階的GUI開発計画｜Level 1–2で土台を確立する」を、
 - Level 0: Epic [#2](https://github.com/NamimatsuRen/Probe-analizer/issues/2)、子Issue #3～#9
 - Level 1: Epic [#10](https://github.com/NamimatsuRen/Probe-analizer/issues/10)、子Issue #11～#40
 - Level 2: Epic [#41](https://github.com/NamimatsuRen/Probe-analizer/issues/41)、子Issue #42～#60
-- Level 3～8: Epic #61～#66
-- 2026-07-23時点で、細分化Issue 65件と索引Issue 1件を登録済み。
+- Level 3: Epic [#61](https://github.com/NamimatsuRen/Probe-analizer/issues/61)、
+  子Issue [#80](https://github.com/NamimatsuRen/Probe-analizer/issues/80)～
+  [#85](https://github.com/NamimatsuRen/Probe-analizer/issues/85)
+- Level 4～8: Epic #62～#66
 
 ## 状態
 
@@ -575,13 +577,23 @@ Notion「段階的GUI開発計画｜Level 1–2で土台を確立する」を、
 
 ---
 
-## Milestones: Level 3以降
+## Milestone: Level 3 — 平滑化・微分
 
-以下のEpicは、Level 2基盤レビュー後に各々を同じ粒度へ分解する。
+| GitHub | 内容 | 状態 |
+|---:|---|---|
+| [#80](https://github.com/NamimatsuRen/Probe-analizer/issues/80) | SG設定と安全な窓調整 | implemented-local |
+| [#81](https://github.com/NamimatsuRen/Probe-analizer/issues/81) | Raw/Filtered/dI/dV結果契約 | implemented-local |
+| [#82](https://github.com/NamimatsuRen/Probe-analizer/issues/82) | 設定UIと比較表示 | implemented-local |
+| [#83](https://github.com/NamimatsuRen/Probe-analizer/issues/83) | 再計算・選択同期・エラー | implemented-local |
+| [#84](https://github.com/NamimatsuRen/Probe-analizer/issues/84) | golden数値・GUI回帰test | implemented-local |
+| [#85](https://github.com/NamimatsuRen/Probe-analizer/issues/85) | 性能・レビュー・v0.3.0 | implemented-local |
+
+## Milestones: Level 4以降
+
+以下のEpicは、直前Levelのレビュー後に各々を同じ粒度へ分解する。
 
 | ID | Issue title | 主な子Issue |
 |---|---|---|
-| L3-01 | `[Epic] Level 3: 平滑化・微分を比較表示する` | SG設定、Raw/Filtered契約、dI/dV、表示切替、golden test、性能 |
 | L4-01 | `[Epic] Level 4: VfとPhi候補を根拠付きで選択する` | zero crossing、log fit、Fit1探索、filtered derivative、raw multiscale、候補UI、品質 |
 | L5-01 | `[Epic] Level 5: 飽和域fitとIsat/R/Kを確認する` | ion/electron範囲、robust fit、外挿、R/K、範囲編集、再計算境界 |
 | L6-01 | `[Epic] Level 6: Ti model fitと目的関数を確認する` | PANTA model、1D optimization、simple estimate、目的関数plot、境界解、品質 |
