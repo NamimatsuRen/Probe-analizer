@@ -221,6 +221,20 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert first_sweep_item.text(0) == "1"
     assert first_sweep_item.text(1) == "↑ 上昇"
     assert first_sweep_item.text(4) == "4"
+    assert window._raw_plot.highlighted_sweep == window._state.sweeps[0]  # noqa: SLF001
+
+    second_sweep = window._state.sweeps[1]  # noqa: SLF001
+    assert window._sweep_browser.select_sweep(second_sweep.sweep_id)  # noqa: SLF001
+    assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
+    assert window._raw_plot.highlighted_interval_s == (  # noqa: SLF001
+        float(second_sweep.time_s[0]),
+        float(second_sweep.time_s[-1]),
+    )
+    assert second_sweep.voltage_series_id in window._raw_plot.highlight_description  # noqa: SLF001
+    assert (
+        f"sample {second_sweep.source_start_index:,}"
+        in window._raw_plot.highlight_description  # noqa: SLF001
+    )
     stale_generation = window._sweep_generation  # noqa: SLF001
     stale_result = SweepSplitResult(
         sweeps=window._state.sweeps,  # noqa: SLF001
@@ -235,6 +249,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     window._load_series(voltage_descriptor)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
+    assert window._raw_plot.highlighted_sweep is None  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001
