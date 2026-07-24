@@ -3,19 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.sweep import Sweep, SweepDirection
 from probe_app.ui.widgets import RawPlot
 
 
-def _raw_series() -> RawSeries:
+def _raw_series(series_id: str = "shot-001/current") -> RawSeries:
+    channel_id = series_id.rsplit("/", 1)[-1]
     descriptor = RawSeriesDescriptor(
-        series_id="shot-001/current",
+        series_id=series_id,
         shot_id="shot-001",
-        channel_id="current",
-        header_path=Path("current.hdr"),
-        data_path=Path("current.dat"),
+        channel_id=channel_id,
+        header_path=Path(f"{channel_id}.hdr"),
+        data_path=Path(f"{channel_id}.dat"),
         sample_count=8,
         value_unit="A",
         time_unit="s",
@@ -27,7 +29,7 @@ def _raw_series() -> RawSeries:
     )
 
 
-def _sweep() -> Sweep:
+def _sweep(*, current_time_offset_s: float = 0.0) -> Sweep:
     return Sweep(
         sweep_id="shot-001/voltage:2:6",
         current_series_id="shot-001/current",
@@ -38,6 +40,7 @@ def _sweep() -> Sweep:
         time_s=np.asarray([0.2, 0.3, 0.4, 0.5], dtype=np.float64),
         voltage_v=np.asarray([2.0, 1.0, 0.0, -1.0], dtype=np.float64),
         current_a=np.asarray([4.0, 3.0, 2.0, 1.0], dtype=np.float64),
+        current_time_offset_s=current_time_offset_s,
     )
 
 
@@ -74,3 +77,36 @@ def test_raw_plot_preserves_highlight_on_redraw_and_can_clear(qtbot: object) -> 
     assert plot.highlighted_interval_s is None
     assert plot._sweep_region is None  # noqa: SLF001
     assert plot._selection_info.isHidden()  # noqa: SLF001
+
+
+def test_current_raw_highlight_uses_corrected_reference_time(
+    qtbot: object,
+) -> None:
+    plot = RawPlot()
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+    plot.show_series(_raw_series("shot-001/current"))
+
+    sweep = _sweep(current_time_offset_s=0.05)
+    plot.highlight_sweep(sweep)
+
+    assert plot.highlighted_interval_s == pytest.approx((0.25, 0.55))
+    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((0.25, 0.55))  # type: ignore[union-attr]  # noqa: SLF001
+    assert "表示中current参照 0.25–0.55 s" in plot.highlight_description
+    assert "補正 +50.000000 ms" in plot.highlight_description
+    assert "Sweep電圧基準 0.2–0.5 s" in plot.highlight_description
+
+
+def test_voltage_raw_highlight_keeps_voltage_reference_time(
+    qtbot: object,
+) -> None:
+    plot = RawPlot()
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+    plot.show_series(_raw_series("shot-001/voltage"))
+
+    sweep = _sweep(current_time_offset_s=0.05)
+    plot.highlight_sweep(sweep)
+
+    assert plot.highlighted_interval_s == pytest.approx((0.2, 0.5))
+    assert tuple(plot._sweep_region.getRegion()) == pytest.approx((0.2, 0.5))  # type: ignore[union-attr]  # noqa: SLF001
+    assert "Sweep電圧基準 0.2–0.5 s" in plot.highlight_description
+    assert "current補正 +50.000000 ms" in plot.highlight_description

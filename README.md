@@ -92,6 +92,8 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 - 旧コードの`current × 1/20`、`sweep voltage × 100`、電流符号を再現できる明示変換
 - 異なる開始時刻・sampling間隔を扱う時間軸整合（外挿なし）
 - データごとのcurrent／Sweep電圧時間差を手動補正（正値は後ろのcurrentを参照）
+- current Raw表示時は、選択Sweepのハイライトを補正後のcurrent参照時刻へ移動
+- I–V選択情報へ実際に適用したcurrent時間補正値を表示
 - source境界と取得方向を保持する`Sweep`モデル
 - 旧`sweep_sort`互換の半周期分割と型付きエラー
 - 同一shot内のcurrent／sweep voltage役割割当UI
@@ -102,6 +104,10 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 下部左側に常時表示されます。右側で「Sweep一覧」や「平滑化・微分」を操作しながら、Raw上の
 対応位置を確認できます。上位のfolder／shot／seriesを変更すると、古いSweep選択と表示は
 同時に消去されます。
+
+Sweep一覧の開始・終了時刻はSweep電圧基準です。current Rawを表示している場合、オレンジの
+選択範囲は`current時間補正`を加えた実際のcurrent参照時刻へ移動します。たとえば+50 msでは、
+電圧基準91.724–101.723 msのSweepに対し、current側141.724–151.723 msを強調表示します。
 
 ## Level 3（平滑化・微分）
 

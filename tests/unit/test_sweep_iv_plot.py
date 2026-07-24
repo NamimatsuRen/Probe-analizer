@@ -7,7 +7,7 @@ from probe_app.domain.models.sweep import Sweep, SweepDirection
 from probe_app.ui.widgets import SweepIVPlot
 
 
-def _down_sweep() -> Sweep:
+def _down_sweep(*, current_time_offset_s: float = 0.0) -> Sweep:
     return Sweep(
         sweep_id="shot-001/voltage:10:14",
         current_series_id="shot-001/current",
@@ -18,6 +18,7 @@ def _down_sweep() -> Sweep:
         time_s=np.asarray([1.0, 1.1, 1.2, 1.3], dtype=np.float64),
         voltage_v=np.asarray([2.0, 1.0, 0.0, -1.0], dtype=np.float64),
         current_a=np.asarray([20.0, 10.0, 0.0, -10.0], dtype=np.float64),
+        current_time_offset_s=current_time_offset_s,
     )
 
 
@@ -47,12 +48,13 @@ def test_iv_plot_displays_direction_sources_and_acquisition_endpoints(
 ) -> None:
     plot = SweepIVPlot()
     qtbot.addWidget(plot)  # type: ignore[attr-defined]
-    sweep = _down_sweep()
+    sweep = _down_sweep(current_time_offset_s=0.05)
 
     plot.show_sweep(sweep)
 
     assert "取得方向: 下降" in plot.description
     assert "current: shot-001/current [A]" in plot.description
+    assert "current時間補正: +50.000000 ms" in plot.description
     assert "voltage: shot-001/voltage [V]" in plot.description
     start_x, start_y = plot._start_marker.getData()  # type: ignore[union-attr]  # noqa: SLF001
     end_x, end_y = plot._end_marker.getData()  # type: ignore[union-attr]  # noqa: SLF001
