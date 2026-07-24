@@ -9,6 +9,7 @@ import numpy as np
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QTabWidget
 
+from probe_app.analysis import SavitzkyGolaySettings
 from probe_app.application.state import LoadStatus, SweepRunStatus
 from probe_app.application.use_cases import SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
@@ -27,6 +28,7 @@ def test_level1_window_starts(qtbot: object) -> None:
     assert window._details_tabs.tabText(0) == "Raw波形"  # noqa: SLF001
     assert window._details_tabs.widget(0) is window._raw_plot  # noqa: SLF001
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
+    assert window._details_tabs.tabText(4) == "平滑化・微分"  # noqa: SLF001
     assert isinstance(window._details_tabs, QTabWidget)  # noqa: SLF001
 
 
@@ -168,7 +170,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     measurement_folder = tmp_path / "measurements"
     current_samples = np.arange(32, dtype=np.int16)
     voltage_samples = np.tile(
-        np.asarray([-3, -2, -1, 0, 1, 2, 3, 2], dtype=np.int16),
+        np.asarray([-3, -1, 1, 3, 3, 1, -1, -3], dtype=np.int16),
         4,
     )
     write_panta_series(
@@ -210,6 +212,9 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     window._sweep_panel.set_parameters(  # noqa: SLF001
         LegacySweepSplitParameters(points_per_cycle=8)
     )
+    window._preprocessing_panel.set_settings(  # noqa: SLF001
+        SavitzkyGolaySettings(window_length=3, polyorder=2)
+    )
 
     window._sweep_panel._run_button.click()  # noqa: SLF001
     qtbot.waitUntil(  # type: ignore[attr-defined]
@@ -236,7 +241,23 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert first_sweep_item.text(4) == "4"
     assert window._raw_plot.highlighted_sweep == window._state.sweeps[0]  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
-    assert window._analysis_preview.selected_sweep == window._state.sweeps[0]  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._preprocessing_panel.selected_sweep_id
+        == window._state.sweeps[0].sweep_id
+    )
+    assert window._preprocessing_panel.result is not None  # noqa: SLF001
+    assert window._sweep_iv_plot.preprocessed is not None  # noqa: SLF001
+    original_sweeps = window._state.sweeps  # noqa: SLF001
+    original_sweep_generation = window._sweep_generation  # noqa: SLF001
+    window._preprocessing_panel.set_settings(  # noqa: SLF001
+        SavitzkyGolaySettings(window_length=3, polyorder=1)
+    )
+    window._preprocessing_panel._run_button.click()  # noqa: SLF001
+    assert window._state.sweeps is original_sweeps  # noqa: SLF001
+    assert window._sweep_generation == original_sweep_generation  # noqa: SLF001
+    assert window._sweep_task is None  # noqa: SLF001
+    assert window._preprocessing_panel.result is not None  # noqa: SLF001
+    assert window._preprocessing_panel.result.polyorder == 1  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     assert (  # noqa: SLF001
@@ -250,7 +271,9 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._state.selected_sweep == second_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == second_sweep  # noqa: SLF001
-    assert window._analysis_preview.selected_sweep == second_sweep  # noqa: SLF001
+    assert window._preprocessing_panel.selected_sweep_id == second_sweep.sweep_id  # noqa: SLF001
+    assert window._preprocessing_panel.result is not None  # noqa: SLF001
+    assert window._sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     np.testing.assert_allclose(  # noqa: SLF001
@@ -304,7 +327,8 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_browser.exclusion_count == 0  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep is None  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep is None  # noqa: SLF001
-    assert window._analysis_preview.selected_sweep is None  # noqa: SLF001
+    assert window._preprocessing_panel.selected_sweep_id is None  # noqa: SLF001
+    assert window._preprocessing_panel.result is None  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001

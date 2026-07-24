@@ -2,8 +2,9 @@
 
 プローブ測定データを、フォルダから直接選んで確認・解析するデスクトップアプリです。
 
-開発ロードマップの **Level 2** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
-current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認まで実行できます。
+開発ロードマップの **Level 3** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
+current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認、平滑化・微分比較まで
+実行できます。
 
 ## 現在できること
 
@@ -29,7 +30,11 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - 選択SweepのI–Vを電圧昇順で常時表示し、取得始点・終点を区別
 - ツールバーまたは`Alt+Left` / `Alt+Right`で前後Sweepへ移動
 - 周期合わせ・短い端数などの未分割区間をsample範囲と理由付きで表示
-- Level 3解析をreader変更なしで追加するpreview接続
+- 選択Sweepを既定のSavitzky–Golay窓501点・3次で自動的に前処理
+- 指定窓がSweepより長い場合、利用可能な最大奇数窓へ安全に調整
+- 大きなI–V領域でRawとFilteredを重ね、下段に`dI/dV`を独立表示
+- SG窓・多項式次数を画面で変更し、Sweep分割をやり直さず再計算
+- 非等間隔電圧の近似誤差を画面で警告
 
 ## 対応するフォルダ
 
@@ -73,7 +78,7 @@ uv run mypy
 ## 現段階で意図的に行わないこと
 
 - currentチャンネルとsweep voltageチャンネルの自動決定
-- 平滑化、微分、浮遊電位・プラズマ電位・温度フィット
+- 浮遊電位・プラズマ電位・飽和域・温度フィット
 
 current／sweep voltageは自動決定せず、利用者が画面から指定します。Rawプロットには`.hdr`の
 分解能・オフセットだけを適用し、追加倍率は後続のSweep解析で使用します。
@@ -96,6 +101,22 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 下部の「Raw波形」と「Sweep一覧」で対応位置を確認できます。上位のfolder／shot／seriesを
 変更すると、古いSweep選択と表示は同時に消去されます。
 
+## Level 3（平滑化・微分）
+
+選択中の1 Sweepだけを`analysis`層へ渡し、readerやSweep分割を再実行せず次を計算します。
+
+```text
+Sweep.iv_voltage_v / iv_current_a
+  └─ Savitzky–Golay平滑化
+       ├─ Filtered current [A]
+       └─ dI/dV [A/V]
+```
+
+既定値は旧コードと同じ窓501点・3次です。窓はSweep点数以下の有効な奇数へ自動調整します。
+微分の電圧刻みは旧コード互換の端点平均
+`(V[-1] - V[0]) / (N - 1)`です。局所刻みが平均から5%を超えて外れる場合は、等間隔近似を
+確認するよう画面へ警告します。
+
 ## 設計資料
 
 - [アーキテクチャ](docs/architecture.md)
@@ -106,4 +127,7 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 - [Level 2性能測定](docs/benchmarks/level2-2026-07-24.md)
 - [Level 2利用テスト](docs/usability/level2-sweep-2026-07-24.md)
 - [Level 2基盤レビュー](docs/reviews/level2-foundation-2026-07-24.md)
+- [Level 3数値契約・golden test](docs/testing/level3-preprocessing.md)
+- [Level 3性能測定](docs/benchmarks/level3-2026-07-24.md)
+- [Level 3レビュー](docs/reviews/level3-preprocessing-2026-07-24.md)
 - [ADR: フォルダ起点の入力](docs/adr/0002-folder-first-input.md)

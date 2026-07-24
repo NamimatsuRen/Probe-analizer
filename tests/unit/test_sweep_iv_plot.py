@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from probe_app.analysis import SavitzkyGolaySettings, preprocess_sweep
 from probe_app.domain.models.sweep import Sweep, SweepDirection
 from probe_app.ui.widgets import SweepIVPlot
 
@@ -66,3 +67,47 @@ def test_iv_plot_displays_direction_sources_and_acquisition_endpoints(
     assert plot.displayed_voltage_v is None
     assert plot.displayed_current_a is None
     assert plot.description == "Sweep分割を実行してください"
+
+
+def test_iv_plot_compares_raw_filtered_and_derivative(qtbot: object) -> None:
+    voltage_v = np.linspace(2.0, -2.0, 9, dtype=np.float64)
+    sweep = Sweep(
+        sweep_id="shot-001/voltage:0:9",
+        current_series_id="shot-001/current",
+        voltage_series_id="shot-001/voltage",
+        source_start_index=0,
+        source_stop_index=9,
+        direction=SweepDirection.DOWN,
+        time_s=np.arange(9, dtype=np.float64),
+        voltage_v=voltage_v,
+        current_a=voltage_v**2,
+    )
+    result = preprocess_sweep(
+        sweep,
+        SavitzkyGolaySettings(window_length=5, polyorder=2),
+    )
+    plot = SweepIVPlot()
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+
+    plot.show_sweep(sweep)
+    plot.show_preprocessing(result)
+
+    np.testing.assert_allclose(plot.displayed_filtered_current_a, result.filtered_current_a)
+    np.testing.assert_allclose(
+        plot.displayed_derivative_a_per_v,
+        result.dcurrent_dvoltage_a_per_v,
+    )
+    filtered_x, filtered_y = plot._filtered_curve.getData()  # type: ignore[union-attr]  # noqa: SLF001
+    derivative_x, derivative_y = plot._derivative_curve.getData()  # type: ignore[union-attr]  # noqa: SLF001
+    np.testing.assert_allclose(filtered_x, result.voltage_v)
+    np.testing.assert_allclose(filtered_y, result.filtered_current_a)
+    np.testing.assert_allclose(derivative_x, result.voltage_v)
+    np.testing.assert_allclose(derivative_y, result.dcurrent_dvoltage_a_per_v)
+    derivative_left_axis = plot._derivative_plot.getPlotItem().getAxis("left")  # noqa: SLF001
+    assert derivative_left_axis.labelText == "dI/dV"
+    assert derivative_left_axis.labelUnits == "A/V"
+
+    plot.clear_preprocessing()
+    assert plot.preprocessed is None
+    assert plot.displayed_filtered_current_a is None
+    assert plot.displayed_derivative_a_per_v is None

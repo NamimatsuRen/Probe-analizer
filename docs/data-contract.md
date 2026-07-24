@@ -166,3 +166,46 @@ valid Sweepと除外区間は画面上で別一覧にする。除外区間は選
 
 Sweep分割の`error`と`cancelled`はフォルダ読込状態とは別に管理する。したがって、分割条件が
 不正でも正常なRaw閲覧は継続できる。
+
+## Level 3の前処理契約
+
+前処理の入力は、Level 2で選択された`Sweep`だけである。フォルダ、JSON、reader、
+current時間補正、Sweep分割条件を再び参照しない。
+
+`Sweep`は取得順で保持されるため、解析時は次を使用する。
+
+```text
+V = Sweep.iv_voltage_v      [V]
+I_raw = Sweep.iv_current_a  [A]
+```
+
+down Sweepは上記propertyで反転され、端点として電圧が増加する向きになる。局所ノイズや量子化で
+刻みが完全な単調増加にならない場合は許容するが、終点が始点以下の場合は方向・分割不整合として
+前処理を停止する。
+
+Savitzky–Golay設定は次の2値である。
+
+- `window_length`: 利用者の希望窓。既定501点。
+- `polyorder`: 局所多項式次数。既定3次。
+
+実使用窓は、希望窓と点数の小さい方を基準に、次数より大きい最大の有効奇数へ調整する。
+点数が`polyorder + 2`未満なら、推測結果を返さず利用者向けエラーにする。
+
+微分は旧コード互換の等間隔近似を用いる。
+
+```text
+ΔV = (V[N-1] - V[0]) / (N - 1)
+dI/dV = savgol_filter(I_raw, deriv=1, delta=ΔV)
+```
+
+結果`PreprocessedSweep`は同じ長さの次の配列と計算条件を持つ。
+
+- `voltage_v` [V]
+- `raw_current_a` [A]
+- `filtered_current_a` [A]
+- `dcurrent_dvoltage_a_per_v` [A/V]
+- 指定窓、実使用窓、次数、平均電圧刻み
+- 各局所刻みの平均刻みからの最大相対偏差
+
+最大相対偏差が5%を超える場合、計算は継続するが、`dI/dV`が等間隔近似であることを画面へ
+警告する。非有限値、配列長不一致、有効窓なしは結果を返さない。
