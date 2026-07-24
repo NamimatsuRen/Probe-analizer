@@ -1,0 +1,39 @@
+name: 実装タスク
+description: ロードマップに沿った小さな実装単位
+title: "[Task] "
+labels: ["type: task"]
+body:
+  - type: textarea
+    id: purpose
+    attributes:
+      label: 目的
+      description: 利用者またはシステムが何をできるようになるか
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: 実装範囲
+      description: 今回含むこと、含まないこと
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 受入条件
+      description: 完了を判定できるチェック項目
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 確認方法
+      description: 自動テスト、手動操作、性能測定
+  - type: input
+    id: dependencies
+    attributes:
+      label: 依存Issue
+      placeholder: "#12, #13"
