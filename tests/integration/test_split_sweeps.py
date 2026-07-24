@@ -112,4 +112,9 @@ def test_manual_current_time_offset_is_applied_before_splitting(
 
     assert result.current_time_offset_s == 0.01
     assert result.interpolated_current
+    assert result.sweeps[0].current_time_offset_s == 0.01
+    np.testing.assert_allclose(
+        result.sweeps[0].current_reference_time_s,
+        result.sweeps[0].time_s + 0.01,
+    )
     np.testing.assert_allclose(result.sweeps[0].current_a, [1, 2, 3, 4])

@@ -88,6 +88,8 @@ RawSeries
 - 装置倍率と符号は `SignalTransform` に明示し、header-calibrated Raw配列を変更しない。
 - 電流は手動時間補正を反映して掃引電圧の時間軸へ補間する。正値は後ろのcurrentを参照し、
   共通時間範囲外へは外挿しない。
+- `Sweep.time_s`はSweep電圧基準を維持し、適用済み補正は`Sweep.current_time_offset_s`へ保持する。
+  current Raw上の対応範囲は`Sweep.current_time_range_s`から表示する。
 - `Sweep` のsource境界は半開区間 `[start, stop)` とする。
 - `Sweep` 配列はRaw上の位置を失わないよう取得順で保持する。
 - 解析用の電圧昇順配列は `Sweep.iv_voltage_v` / `iv_current_a` から取得する。
@@ -144,6 +146,8 @@ SweepSplitPanel
   Sweep分割・一覧・平滑化/微分・Raw情報を配置する。
 - Raw波形と右側操作タブを別widget階層に置き、設定・一覧の切替中も選択SweepのRaw highlightを
   維持する。
+- Raw highlightは表示中系列がcurrentなら補正後のcurrent参照時刻、sweep voltageまたは
+  その他の系列ならSweep電圧基準時刻を使う。I–Vと選択情報には適用済み補正値を明示する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
 - Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
 

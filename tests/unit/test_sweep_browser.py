@@ -42,6 +42,8 @@ def test_sweep_browser_displays_required_metadata(qtbot: object) -> None:
 
     assert browser.sweep_count == 2
     assert browser.selected_sweep == sweeps[0]
+    assert browser._tree.headerItem().text(2) == "電圧開始 [s]"  # noqa: SLF001
+    assert browser._tree.headerItem().text(3) == "電圧終了 [s]"  # noqa: SLF001
     first = browser._tree.topLevelItem(0)  # noqa: SLF001
     second = browser._tree.topLevelItem(1)  # noqa: SLF001
     assert [first.text(column) for column in range(6)] == [

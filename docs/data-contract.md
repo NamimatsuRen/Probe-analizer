@@ -151,6 +151,11 @@ valid Sweepと除外区間は画面上で別一覧にする。除外区間は選
 - `current_time_offset_s`: current参照時刻の符号付き補正値。既定値0。
   画面ではms表示し、正値はSweep電圧より後ろのcurrentを参照する。
 
+`Sweep.time_s`と一覧の開始・終了時刻はSweep電圧基準であり、補正によって移動しない。
+分割後の各`Sweep`は適用済み`current_time_offset_s`を保持し、current Raw上で対応位置を
+表示するときは`time_s + current_time_offset_s`を使う。I–Vの`current_a`はこの補正後時刻で
+補間済みの値である。
+
 実行時点のrole割当と上記パラメータを不変なrequestとしてbackground taskへ渡す。
 実行後にseriesまたはroleが変わった場合、旧requestの結果はgeneration不一致として破棄する。
 キャンセルはcatalogやRaw表示を消さず、同じ条件で再実行できる状態へ戻す。

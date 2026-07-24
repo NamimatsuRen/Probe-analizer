@@ -158,6 +158,7 @@ class SweepIVPlot(QWidget):
         self._selection_info.setText(
             f"選択Sweep: {sweep.sweep_id} ｜ 取得方向: {direction} ｜ "
             f"current: {sweep.current_series_id} [A] ｜ "
+            f"current時間補正: {sweep.current_time_offset_s * 1_000.0:+.6f} ms ｜ "
             f"voltage: {sweep.voltage_series_id} [V] ｜ "
             f"{sweep.point_count:,} 点 ｜ ● 始点 / ■ 終点"
         )

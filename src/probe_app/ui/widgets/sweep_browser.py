@@ -46,7 +46,16 @@ class SweepBrowser(QWidget):
 
         self._tree = QTreeWidget()
         self._tree.setObjectName("sweepBrowser")
-        self._tree.setHeaderLabels(["No.", "方向", "開始 [s]", "終了 [s]", "点数", "電圧範囲 [V]"])
+        self._tree.setHeaderLabels(
+            [
+                "No.",
+                "方向",
+                "電圧開始 [s]",
+                "電圧終了 [s]",
+                "点数",
+                "電圧範囲 [V]",
+            ]
+        )
         self._tree.setAlternatingRowColors(True)
         self._tree.setUniformRowHeights(True)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)

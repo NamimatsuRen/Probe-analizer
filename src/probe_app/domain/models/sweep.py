@@ -73,6 +73,7 @@ class Sweep:
     time_s: FloatArray
     voltage_v: FloatArray
     current_a: FloatArray
+    current_time_offset_s: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.sweep_id.strip():
@@ -91,6 +92,8 @@ class Sweep:
             raise ValueError("Sweep arrays must match the half-open source boundary")
         if not all(np.all(np.isfinite(array)) for array in arrays):
             raise ValueError("Sweep arrays must contain only finite values")
+        if not np.isfinite(self.current_time_offset_s):
+            raise ValueError("current_time_offset_s must be finite")
         if self.time_s.size > 1 and not np.all(np.diff(self.time_s) > 0):
             raise ValueError("Sweep time must be strictly increasing in acquisition order")
 
@@ -113,3 +116,16 @@ class Sweep:
     @property
     def iv_time_s(self) -> FloatArray:
         return self.time_s if self.direction is SweepDirection.UP else self.time_s[::-1]
+
+    @property
+    def current_reference_time_s(self) -> FloatArray:
+        """Current sample times paired with the voltage-reference times."""
+
+        return self.time_s + self.current_time_offset_s
+
+    @property
+    def current_time_range_s(self) -> tuple[float, float]:
+        return (
+            float(self.time_s[0]) + self.current_time_offset_s,
+            float(self.time_s[-1]) + self.current_time_offset_s,
+        )

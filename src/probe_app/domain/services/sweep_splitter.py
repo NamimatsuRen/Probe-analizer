@@ -140,6 +140,7 @@ def split_legacy_sweeps_with_diagnostics(
                     signals.current_a[local_start:local_stop],
                     dtype=np.float64,
                 ),
+                current_time_offset_s=signals.current_time_offset_s,
             )
         )
 
