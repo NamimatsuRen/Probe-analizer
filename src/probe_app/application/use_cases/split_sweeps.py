@@ -23,6 +23,7 @@ class SweepSplitRequest:
     voltage_descriptor: RawSeriesDescriptor
     assignments: SeriesRoleAssignments
     parameters: LegacySweepSplitParameters
+    current_time_offset_s: float = 0.0
 
     def __post_init__(self) -> None:
         if self.current_descriptor.shot_id != self.voltage_descriptor.shot_id:
@@ -46,6 +47,7 @@ class SweepSplitResult:
     voltage_series_id: str
     interpolated_current: bool
     parameters: LegacySweepSplitParameters
+    current_time_offset_s: float = 0.0
     exclusions: tuple[SweepExclusion, ...] = ()
 
     @property
@@ -84,7 +86,11 @@ class SplitSweeps:
         voltage = request.assignments.prepare(SeriesRole.SWEEP_VOLTAGE, voltage_raw)
 
         self._raise_if_cancelled(is_cancelled)
-        aligned = align_current_and_voltage(current, voltage)
+        aligned = align_current_and_voltage(
+            current,
+            voltage,
+            current_time_offset_s=request.current_time_offset_s,
+        )
         self._raise_if_cancelled(is_cancelled)
         diagnostics = split_legacy_sweeps_with_diagnostics(
             aligned,
@@ -98,6 +104,7 @@ class SplitSweeps:
             voltage_series_id=aligned.voltage_series_id,
             interpolated_current=aligned.interpolated_current,
             parameters=request.parameters,
+            current_time_offset_s=aligned.current_time_offset_s,
             exclusions=diagnostics.exclusions,
         )
 

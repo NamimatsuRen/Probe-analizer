@@ -109,11 +109,13 @@ folder pathとshot IDの組み合わせごとに保存する。
 
 掃引電圧の時刻を基準軸とする。
 
-1. currentとsweep voltageの共通時間範囲を求める。
-2. 共通範囲内にあるsweep voltage点だけを残す。
-3. 時刻配列が完全一致する場合はcurrentをそのまま使用する。
-4. 一致しない場合はcurrentを線形補間する。
-5. 共通範囲外への外挿は行わない。
+1. 手動補正値 `Δt` をcurrent参照時刻へ加える。正値では、Sweep電圧の時刻 `t` に対して
+   後ろのcurrent `I(t + Δt)` を使用する。
+2. 補正後のcurrentとsweep voltageの共通時間範囲を求める。
+3. 共通範囲内にあるsweep voltage点だけを残す。
+4. 補正値が0で時刻配列が完全一致する場合はcurrentをそのまま使用する。
+5. 一致しない場合はcurrentを線形補間する。
+6. 共通範囲外への外挿は行わない。
 
 非有限値、単調増加でない時刻、共通範囲なし、点数不足はそれぞれ異なる型付きエラーとする。
 Raw時系列上の表示位置へ戻せるよう、整合後の先頭が元のsweep voltage配列の何番目かも保持する。
@@ -146,6 +148,8 @@ valid Sweepと除外区間は画面上で別一覧にする。除外区間は選
 - `points_per_cycle`: 1周期のsample点数。2以上の偶数。
 - `sample_start`: 対象半開区間の先頭。既定値0。
 - `sample_stop`: 対象半開区間の末尾。「末尾まで使う」場合は未指定。
+- `current_time_offset_s`: current参照時刻の符号付き補正値。既定値0。
+  画面ではms表示し、正値はSweep電圧より後ろのcurrentを参照する。
 
 実行時点のrole割当と上記パラメータを不変なrequestとしてbackground taskへ渡す。
 実行後にseriesまたはroleが変わった場合、旧requestの結果はgeneration不一致として破棄する。

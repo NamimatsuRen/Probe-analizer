@@ -86,7 +86,8 @@ RawSeries
 
 - `SeriesRoleAssignments` はフォルダ走査結果へ後から役割を与える。basenameから役割を推測しない。
 - 装置倍率と符号は `SignalTransform` に明示し、header-calibrated Raw配列を変更しない。
-- 電流は掃引電圧の時間軸へ補間する。共通時間範囲外へは外挿しない。
+- 電流は手動時間補正を反映して掃引電圧の時間軸へ補間する。正値は後ろのcurrentを参照し、
+  共通時間範囲外へは外挿しない。
 - `Sweep` のsource境界は半開区間 `[start, stop)` とする。
 - `Sweep` 配列はRaw上の位置を失わないよう取得順で保持する。
 - 解析用の電圧昇順配列は `Sweep.iv_voltage_v` / `iv_current_a` から取得する。
@@ -127,7 +128,8 @@ SweepSplitPanel
                            └─ AppState.apply_sweep_result()
 ```
 
-- 入力はcatalog内のdescriptor、保存済み役割、画面で指定した分割条件だけで構成する。
+- 入力はcatalog内のdescriptor、保存済み役割、画面で指定した分割条件とcurrent時間補正だけで
+  構成する。
 - JSON設定やbasename規則を処理開始条件にしない。
 - seriesまたはroleが変わると、保持中のSweepと進行中taskを無効化する。
 - taskのcallbackはgeneration一致時だけ`AppState`へ適用する。
@@ -138,6 +140,7 @@ SweepSplitPanel
 - Sweep選択IDの正規ソースは`AppState.selected_sweep_id`とする。
 - folder、shot/role、seriesの上位選択が変わると、Sweep結果と選択を同時に無効化する。
 - 選択済み`Sweep`をRaw highlight、I–V、解析previewへ渡し、各表示が別のIDを持たないようにする。
+- I–Vを上部の主表示、Raw波形を下部タブの補助表示とし、I–Vは設定・一覧操作中も維持する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。
 - Level 3の数値処理は`analysis`へ追加し、`ui`側panelから選択済み`Sweep`を渡す。
 

@@ -97,11 +97,13 @@ class MainWindow(QMainWindow):
         left.setSizes([450, 310])
 
         right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(self._raw_plot)
+        self._sweep_iv_plot.setObjectName("primaryIVPlot")
+        self._raw_plot.setObjectName("secondaryRawPlot")
+        right.addWidget(self._sweep_iv_plot)
+        self._details_tabs.addTab(self._raw_plot, "Raw波形")
         self._details_tabs.addTab(self._metadata, "Raw情報")
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
         self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
-        self._details_tabs.addTab(self._sweep_iv_plot, "I–V")
         self._details_tabs.addTab(self._analysis_preview, "解析プレビュー")
         right.addWidget(self._details_tabs)
         right.setStretchFactor(0, 5)
@@ -352,6 +354,7 @@ class MainWindow(QMainWindow):
                 voltage_descriptor=voltage_descriptor,
                 assignments=assignments,
                 parameters=self._sweep_panel.parameters(),
+                current_time_offset_s=self._sweep_panel.current_time_offset_s(),
             )
         except ValueError as error:
             self._state = self._state.fail_sweep_split(
@@ -392,7 +395,12 @@ class MainWindow(QMainWindow):
             if result_object.interpolated_current
             else "2系列の時間軸は一致しています"
         )
-        self._render_sweep_panel(details=interpolation)
+        offset_ms = result_object.current_time_offset_s * 1_000.0
+        offset_description = (
+            f"current時間補正: {offset_ms:+.6f} ms"
+            "（+: 後ろのcurrentを参照）"
+        )
+        self._render_sweep_panel(details=f"{interpolation} / {offset_description}")
         self._status.set_status(self._state.status, self._state.sweep_message)
         self._render_actions()
 

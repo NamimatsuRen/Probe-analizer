@@ -22,7 +22,11 @@ from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from tests.conftest import write_panta_series
 
 
-def _request(tmp_path: Path) -> SweepSplitRequest:
+def _request(
+    tmp_path: Path,
+    *,
+    current_time_offset_s: float = 0.0,
+) -> SweepSplitRequest:
     current_samples = np.arange(32, dtype=np.int16)
     voltage_cycle = np.asarray([-3, -2, -1, 0, 1, 2, 3, 2], dtype=np.int16)
     voltage_samples = np.tile(voltage_cycle, 4)
@@ -69,6 +73,7 @@ def _request(tmp_path: Path) -> SweepSplitRequest:
         voltage_descriptor=voltage,
         assignments=assignments,
         parameters=LegacySweepSplitParameters(points_per_cycle=8),
+        current_time_offset_s=current_time_offset_s,
     )
 
 
@@ -98,3 +103,13 @@ def test_folder_assigned_series_are_loaded_aligned_and_split(tmp_path: Path) -> 
 def test_split_can_be_cancelled_before_loading(tmp_path: Path) -> None:
     with pytest.raises(OperationCancelled):
         SplitSweeps().execute(_request(tmp_path), is_cancelled=lambda: True)
+
+
+def test_manual_current_time_offset_is_applied_before_splitting(
+    tmp_path: Path,
+) -> None:
+    result = SplitSweeps().execute(_request(tmp_path, current_time_offset_s=0.01))
+
+    assert result.current_time_offset_s == 0.01
+    assert result.interpolated_current
+    np.testing.assert_allclose(result.sweeps[0].current_a, [1, 2, 3, 4])

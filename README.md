@@ -19,13 +19,14 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - 同一shot内の系列をcurrent／sweep voltageへ明示的に割当
 - current／sweep voltageごとの倍率・符号を設定
 - 役割設定を測定フォルダへ書き込まず、アプリ設定として保存・復元
-- JSONに代わる画面入力で、1周期の点数と対象sample範囲を指定
+- JSONに代わる画面入力で、1周期の点数、対象sample範囲、current時間補正を指定
 - 割り当てた2系列の読込・時間軸整合・Sweep分割をバックグラウンド実行
 - 分割処理のキャンセルと、系列切替後に返った古い結果の破棄
 - 分割したSweep数と、currentの時間軸補間有無を画面で確認
 - Sweep一覧で番号、方向、時間、点数、電圧範囲を確認
+- I–Vを主表示、Raw波形を下部表示とし、選択Sweepの対応を同時確認
 - 選択SweepのRaw時系列区間をorange highlightで表示
-- 選択SweepのI–Vを電圧昇順で表示し、取得始点・終点を区別
+- 選択SweepのI–Vを電圧昇順で常時表示し、取得始点・終点を区別
 - ツールバーまたは`Alt+Left` / `Alt+Right`で前後Sweepへ移動
 - 周期合わせ・短い端数などの未分割区間をsample範囲と理由付きで表示
 - Level 3解析をreader変更なしで追加するpreview接続
@@ -84,14 +85,16 @@ Level 2のGUIへ進む前段として、次の純粋な計算機能を実装し�
 - basenameに依存しないcurrent / sweep voltageの役割モデル
 - 旧コードの`current × 1/20`、`sweep voltage × 100`、電流符号を再現できる明示変換
 - 異なる開始時刻・sampling間隔を扱う時間軸整合（外挿なし）
+- データごとのcurrent／Sweep電圧時間差を手動補正（正値は後ろのcurrentを参照）
 - source境界と取得方向を保持する`Sweep`モデル
 - 旧`sweep_sort`互換の半周期分割と型付きエラー
 - 同一shot内のcurrent／sweep voltage役割割当UI
 - フォルダ・shot別の役割／倍率／符号の保存と復元
 
 役割や倍率の入力にJSONファイルは要求しません。設定は測定フォルダではなくOSのアプリ設定へ
-保存します。Sweep分割は「Sweep分割」タブから実行でき、結果は「Sweep一覧」と「I–V」で
-確認できます。上位のfolder／shot／seriesを変更すると、古いSweep選択と表示は同時に消去されます。
+保存します。Sweep分割は「Sweep分割」タブから実行でき、I–Vは主領域に常時表示されます。
+下部の「Raw波形」と「Sweep一覧」で対応位置を確認できます。上位のfolder／shot／seriesを
+変更すると、古いSweep選択と表示は同時に消去されます。
 
 ## 設計資料
 

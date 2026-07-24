@@ -20,6 +20,7 @@ class AlignedSignals:
     sweep_voltage_v: FloatArray
     voltage_source_start_index: int
     interpolated_current: bool
+    current_time_offset_s: float = 0.0
 
     def __post_init__(self) -> None:
         arrays = (self.time_s, self.current_a, self.sweep_voltage_v)
@@ -31,6 +32,8 @@ class AlignedSignals:
             raise ValueError("aligned signals require at least two points")
         if self.voltage_source_start_index < 0:
             raise ValueError("voltage_source_start_index cannot be negative")
+        if not np.isfinite(self.current_time_offset_s):
+            raise ValueError("current_time_offset_s must be finite")
 
 
 def _validate_signal(signal: PhysicalSignal, role: SeriesRole, unit: str) -> None:
@@ -61,20 +64,31 @@ def align_current_and_voltage(
     sweep_voltage: PhysicalSignal,
     *,
     minimum_points: int = 2,
+    current_time_offset_s: float = 0.0,
 ) -> AlignedSignals:
     """Align signals without extrapolation, using voltage time as the reference.
 
-    Voltage samples outside the current time range are removed. Current samples
-    are interpolated only when the two retained time axes are not already equal.
+    ``current_time_offset_s`` is added to each voltage reference time before
+    reading current. A positive value therefore pairs voltage at time ``t`` with
+    current measured later at ``t + offset``. Voltage samples whose shifted
+    current lookup time falls outside the current range are removed.
     """
 
     _validate_signal(current, SeriesRole.CURRENT, "A")
     _validate_signal(sweep_voltage, SeriesRole.SWEEP_VOLTAGE, "V")
     if minimum_points < 2:
         raise ValueError("minimum_points must be at least 2")
+    if not np.isfinite(current_time_offset_s):
+        raise ValueError("current_time_offset_s must be finite")
 
-    overlap_start = max(float(current.time_s[0]), float(sweep_voltage.time_s[0]))
-    overlap_stop = min(float(current.time_s[-1]), float(sweep_voltage.time_s[-1]))
+    overlap_start = max(
+        float(current.time_s[0]) - current_time_offset_s,
+        float(sweep_voltage.time_s[0]),
+    )
+    overlap_stop = min(
+        float(current.time_s[-1]) - current_time_offset_s,
+        float(sweep_voltage.time_s[-1]),
+    )
     if overlap_stop < overlap_start:
         raise SignalAlignmentError(
             SignalAlignmentFailure.NO_TIME_OVERLAP,
@@ -102,15 +116,17 @@ def align_current_and_voltage(
         dtype=np.float64,
     )
 
+    current_lookup_time = reference_time + current_time_offset_s
     direct = (
-        current.time_s.size == reference_time.size
+        current_time_offset_s == 0.0
+        and current.time_s.size == reference_time.size
         and np.array_equal(current.time_s, reference_time)
     )
     if direct:
         aligned_current = np.asarray(current.values, dtype=np.float64)
     else:
         aligned_current = np.asarray(
-            np.interp(reference_time, current.time_s, current.values),
+            np.interp(current_lookup_time, current.time_s, current.values),
             dtype=np.float64,
         )
 
@@ -122,4 +138,5 @@ def align_current_and_voltage(
         sweep_voltage_v=reference_voltage,
         voltage_source_start_index=source_start,
         interpolated_current=not direct,
+        current_time_offset_s=current_time_offset_s,
     )

@@ -15,8 +15,16 @@ def test_split_panel_exposes_explicit_non_json_parameters(qtbot: object) -> None
     )
 
     panel.set_parameters(parameters)
+    panel.set_current_time_offset_s(0.00125)
 
     assert panel.parameters() == parameters
+    assert panel.current_time_offset_s() == 0.00125
+    assert (
+        panel._current_time_offset_ms.toolTip()  # noqa: SLF001
+        == "currentの参照時刻を補正します。"
+        "正の値ではSweep電圧より後のcurrentを使います。"
+    )
+    assert "＋はSweep電圧時刻より後" in panel._offset_help.text()  # noqa: SLF001
 
 
 def test_split_panel_only_runs_when_ready_and_not_running(qtbot: object) -> None:
@@ -38,3 +46,4 @@ def test_split_panel_only_runs_when_ready_and_not_running(qtbot: object) -> None
     panel.render_state(SweepRunStatus.RUNNING, "分割中", ready=True)
     assert not run_button.isEnabled()
     assert cancel_button.isEnabled()
+    assert not panel._current_time_offset_ms.isEnabled()  # noqa: SLF001
