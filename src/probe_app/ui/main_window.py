@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QThreadPool, QTimer
@@ -67,7 +68,14 @@ from probe_app.ui.widgets import (
     SweepIVPlot,
     SweepSplitPanel,
 )
-from probe_app.ui.workers import FolderScanTask, SeriesLoadTask, SweepSplitTask
+from probe_app.ui.workers import (
+    AnalysisBatchInput,
+    AnalysisBatchOutput,
+    AnalysisBatchTask,
+    FolderScanTask,
+    SeriesLoadTask,
+    SweepSplitTask,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -96,9 +104,12 @@ class MainWindow(QMainWindow):
         self._scan_generation = 0
         self._load_generation = 0
         self._sweep_generation = 0
+        self._analysis_generation = 0
         self._scan_task: FolderScanTask | None = None
         self._load_task: SeriesLoadTask | None = None
         self._sweep_task: SweepSplitTask | None = None
+        self._analysis_task: AnalysisBatchTask | None = None
+        self._analysis_batch_total = 0
         self._auto_sweep_shot_id: str | None = None
         self._auto_sweep_timer = QTimer(self)
         self._auto_sweep_timer.setSingleShot(True)
@@ -143,6 +154,12 @@ class MainWindow(QMainWindow):
             self._preprocessing_requested
         )
         self._fit_panel.run_requested.connect(self._full_analysis_requested)
+        self._fit_panel.run_all_requested.connect(
+            self._full_shot_analysis_requested
+        )
+        self._fit_panel.cancel_all_requested.connect(
+            self._cancel_full_shot_analysis
+        )
         self._summary_workspace.sweep_selected.connect(
             self._summary_sweep_selected
         )
@@ -838,6 +855,145 @@ class MainWindow(QMainWindow):
         self._analysis_sweep_iv_plot.show_analysis_result(complete)
         self._render_analysis_workspace()
 
+    def _full_shot_analysis_requested(self, settings_object: object) -> None:
+        if (
+            not isinstance(settings_object, AnalysisSettings)
+            or not self._state.sweeps
+            or self._analysis_task is not None
+        ):
+            return
+        try:
+            preprocessing_settings = self._preprocessing_panel.settings()
+            automatic_settings = replace(
+                settings_object,
+                potential=replace(
+                    settings_object.potential,
+                    selected_vf_candidate_id=None,
+                    selected_phi_candidate_id=None,
+                ),
+            )
+            inputs = tuple(
+                AnalysisBatchInput(
+                    sweep=sweep,
+                    revision=self._build_analysis_revision(
+                        sweep,
+                        preprocessing_settings,
+                        automatic_settings,
+                    ),
+                )
+                for sweep in self._state.sweeps
+            )
+        except ValueError as error:
+            selected = self._state.selected_sweep
+            if selected is not None:
+                self._fit_panel.show_error(selected.sweep_id, str(error))
+            return
+
+        self._analysis_generation += 1
+        generation = self._analysis_generation
+        self._analysis_batch_total = len(inputs)
+        task = AnalysisBatchTask(
+            generation,
+            inputs,
+            preprocessing_settings,
+            automatic_settings,
+        )
+        task.signals.item_succeeded.connect(self._analysis_batch_item_succeeded)
+        task.signals.failed.connect(self._analysis_batch_failed)
+        task.signals.completed.connect(self._analysis_batch_completed)
+        task.signals.cancelled.connect(self._analysis_batch_cancelled)
+        self._analysis_task = task
+        self._fit_panel.show_batch_progress(0, len(inputs))
+        self._render_actions()
+        self._thread_pool.start(task)
+
+    def _analysis_batch_item_succeeded(
+        self,
+        generation: int,
+        output_object: object,
+        completed: int,
+        total: int,
+    ) -> None:
+        if (
+            generation != self._analysis_generation
+            or not isinstance(output_object, AnalysisBatchOutput)
+        ):
+            return
+        output = output_object
+        try:
+            self._state = self._state.record_analysis(output.record)
+        except ValueError:
+            return
+        selected = self._state.selected_sweep
+        if (
+            selected is not None
+            and selected.sweep_id == output.record.revision.sweep_id
+            and output.complete is not None
+        ):
+            self._preprocessing_panel.show_result(output.complete.preprocessed)
+            self._analysis_sweep_iv_plot.show_preprocessing(
+                output.complete.preprocessed
+            )
+            self._fit_panel.show_result(output.complete)
+            self._analysis_sweep_iv_plot.show_analysis_result(output.complete)
+        self._fit_panel.show_batch_progress(
+            completed,
+            total,
+            output.record.revision.sweep_id,
+        )
+        render_interval = max(1, total // 20)
+        if completed == total or completed % render_interval == 0:
+            self._render_summary_workspace()
+            self._analysis_workspace.render_state(
+                selected,
+                (
+                    self._state.analysis_results.latest_for_sweep(
+                        selected.sweep_id
+                    )
+                    if selected is not None
+                    else None
+                ),
+                empty_message=self._state.sweep_message,
+            )
+
+    def _analysis_batch_completed(self, generation: int, completed: int) -> None:
+        if generation != self._analysis_generation:
+            return
+        total = self._analysis_batch_total
+        self._analysis_task = None
+        self._fit_panel.show_batch_finished(completed, total)
+        self._render_analysis_workspace()
+        self._render_actions()
+
+    def _analysis_batch_cancelled(self, generation: int, completed: int) -> None:
+        if generation != self._analysis_generation:
+            return
+        total = self._analysis_batch_total
+        self._analysis_task = None
+        self._fit_panel.show_batch_cancelled(completed, total)
+        self._render_analysis_workspace()
+        self._render_actions()
+
+    def _analysis_batch_failed(
+        self,
+        generation: int,
+        message: str,
+        details: str,
+    ) -> None:
+        if generation != self._analysis_generation:
+            return
+        LOGGER.error("Shot analysis failed: %s\n%s", message, details)
+        self._analysis_task = None
+        selected = self._state.selected_sweep
+        if selected is not None:
+            self._fit_panel.show_error(selected.sweep_id, message)
+        self._render_analysis_workspace()
+        self._render_actions()
+
+    def _cancel_full_shot_analysis(self) -> None:
+        if self._analysis_task is not None:
+            self._analysis_task.cancel()
+
     @staticmethod
     def _preprocessing_stage(result: PreprocessedSweep) -> StageResult:
         status = (
@@ -938,6 +1094,9 @@ class MainWindow(QMainWindow):
         self._render_actions()
 
     def _cancel_work(self) -> None:
+        if self._analysis_task is not None:
+            self._cancel_full_shot_analysis()
+            return
         if self._sweep_task is not None:
             self._cancel_sweep_split()
             return
@@ -945,6 +1104,7 @@ class MainWindow(QMainWindow):
         self._scan_generation += 1
         self._load_generation += 1
         self._sweep_generation += 1
+        self._analysis_generation += 1
         self._state = self._state.cancel()
         self._raw_plot.clear_plot("読み込みをキャンセルしました")
         self._render_state()
@@ -960,6 +1120,10 @@ class MainWindow(QMainWindow):
         if self._sweep_task is not None:
             self._sweep_task.cancel()
             self._sweep_task = None
+        if self._analysis_task is not None:
+            self._analysis_task.cancel()
+            self._analysis_task = None
+            self._analysis_generation += 1
 
     def _invalidate_sweep_task(self) -> None:
         if self._sweep_task is not None:
@@ -991,6 +1155,7 @@ class MainWindow(QMainWindow):
             self._scan_task is not None
             or self._load_task is not None
             or self._sweep_task is not None
+            or self._analysis_task is not None
             or self._auto_sweep_timer.isActive()
         )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)

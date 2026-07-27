@@ -15,8 +15,12 @@ from probe_app.domain.models import (
     SignalAssignmentRevision,
     StageResult,
     SummaryMethod,
+    SummaryMethodValue,
+    SummaryMetric,
+    SummaryRow,
     SummaryScope,
     SummaryScopeKind,
+    SummarySnapshot,
     Sweep,
     SweepAnalysisRecord,
     SweepDirection,
@@ -145,6 +149,78 @@ def test_summary_query_does_not_mutate_result_store() -> None:
     assert store.records is before
 
 
+def test_summary_statistics_apply_metric_specific_quality_and_ti_cap() -> None:
+    scope = SummaryScope(
+        kind=SummaryScopeKind.CURRENT_SHOT,
+        folder_key="/measurements",
+        shot_ids=("shot-001",),
+    )
+    snapshot = SummarySnapshot(
+        scope=scope,
+        rows=(
+            _summary_row(1, ti_ev=1.0, phi_v=14.0),
+            _summary_row(
+                2,
+                ti_ev=3.0,
+                phi_v=16.0,
+                status=AnalysisStatus.REVIEW,
+            ),
+            _summary_row(3, ti_ev=6.0, phi_v=18.0),
+            _summary_row(
+                4,
+                ti_ev=2.0,
+                phi_v=19.0,
+                status=AnalysisStatus.STALE,
+                current_revision=False,
+            ),
+            _summary_row(
+                5,
+                ti_ev=2.5,
+                phi_v=20.0,
+                method_status=AnalysisStatus.ERROR,
+            ),
+        ),
+    )
+
+    ti = snapshot.metric_statistics(SummaryMetric.TI)[0]
+    phi = snapshot.metric_statistics(SummaryMetric.PHI)[0]
+
+    assert ti.method is SummaryMethod.FILTERED_LOG
+    assert ti.count == 2
+    assert ti.scope_count == 5
+    assert ti.mean == 2.0
+    assert ti.sample_std == 2**0.5
+    assert ti.minimum == 1.0
+    assert ti.maximum == 3.0
+    assert phi.count == 3
+    assert phi.mean == 16.0
+    assert phi.sample_std == 2.0
+
+    ti_points = snapshot.plot_points(
+        SummaryMetric.TI,
+        SummaryMethod.FILTERED_LOG,
+    )
+    phi_points = snapshot.plot_points(
+        SummaryMetric.PHI,
+        SummaryMethod.FILTERED_LOG,
+    )
+    assert len(ti_points) == 5
+    assert [point.included for point in ti_points] == [
+        True,
+        True,
+        False,
+        False,
+        False,
+    ]
+    assert [point.included for point in phi_points] == [
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]
+
+
 def _sweep(index: int) -> Sweep:
     start = 200_000 + index * 10
     stop = start + 10
@@ -197,3 +273,34 @@ def _revision(sweep_id: str, *, generation_id: int) -> AnalysisInputRevision:
         generation_id=generation_id,
     )
 
+
+def _summary_row(
+    number: int,
+    *,
+    ti_ev: float,
+    phi_v: float,
+    status: AnalysisStatus = AnalysisStatus.VALID,
+    method_status: AnalysisStatus = AnalysisStatus.VALID,
+    current_revision: bool = True,
+) -> SummaryRow:
+    return SummaryRow(
+        number=number,
+        sweep_id=f"shot-001/voltage:{number}:{number + 1}",
+        shot_id="shot-001",
+        direction=SweepDirection.UP,
+        start_ms=float(number),
+        stop_ms=float(number + 1),
+        point_count=10,
+        status=status,
+        current_revision=current_revision,
+        methods=(
+            SummaryMethodValue(
+                method=SummaryMethod.FILTERED_LOG,
+                status=method_status,
+                phi_status=method_status,
+                ti_status=method_status,
+                phi_v=phi_v,
+                ti_ev=ti_ev,
+            ),
+        ),
+    )
