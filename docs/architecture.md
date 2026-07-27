@@ -178,3 +178,33 @@ AppState.selected_sweep_id
 - 10,000点・窓501の実測中央値は2.181 msであり、GUIスレッド内計算でも200 ms目標に十分な
   余裕がある。点数・窓が大幅に増える場合はbackground化を再評価する。
 - architecture testで`domain`と`analysis`からPySide6・pyqtgraphへの依存がないことを固定する。
+
+## Level 4以降のワークスペース情報設計
+
+Level 4–8の機能をLevel 2の小タブへ追加し続けず、右側メイン領域を次の4ワークスペースへ
+分ける。詳細な決定理由と状態表は
+[ADR 0004](adr/0004-workspace-information-architecture.md)を参照する。
+
+```text
+共有コンテキスト（左側）
+  Folder / Shot / Series / 系列役割
+             │
+             └─ AppState.selected_sweep_id（単一Sweep選択の正規ソース）
+
+右側の最上位ワークスペース
+  ├─ データ確認  Raw全波形 / Raw I–V / Sweep分割・一覧・Raw情報
+  ├─ 解析        前処理 / V_f・Phi / saturation / T_i / quality
+  ├─ サマリー    shot・複数shot・位置の比較、除外、drill-down
+  └─ Export      論文図preview、vector/raster、CSV、manifest
+```
+
+- 起動時は「データ確認」を開く。
+- データ確認にはFiltered、`dI/dV`、fit結果を表示しない。
+- タブ切替は計算トリガーにしない。計算は明示操作からだけ開始する。
+- Data/Analysisは選択Sweepを扱う。Summary/Exportの集約scopeは別の型として扱う。
+- Summaryの点から解析へ移動するときだけ、対象Sweepを共有selectionへ設定する。
+- stale/error/excluded/partial-successを結果なしとして黙って落とさない。
+- current revisionと一致しない結果は既定のSummary集計とExport対象から除外する。
+
+解析ワークスペースの詳細レイアウトは先に固定しない。2〜3案を代表データで比較し、
+利用者の承認後にLevel 4–6の最終配置を決定する。
