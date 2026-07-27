@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from probe_app.analysis import SavitzkyGolaySettings, preprocess_sweep
 from probe_app.domain.models.sweep import Sweep, SweepDirection
@@ -113,3 +114,23 @@ def test_iv_plot_compares_raw_filtered_and_derivative(qtbot: object) -> None:
     assert plot.preprocessed is None
     assert plot.displayed_filtered_current_a is None
     assert plot.displayed_derivative_a_per_v is None
+
+
+def test_raw_only_plot_never_adds_filtered_or_derivative_views(qtbot: object) -> None:
+    plot = SweepIVPlot(analysis_enabled=False)
+    qtbot.addWidget(plot)  # type: ignore[attr-defined]
+    sweep = _down_sweep()
+
+    plot.show_sweep(sweep)
+
+    assert plot.analysis_enabled is False
+    assert plot.preprocessed is None
+    assert plot._derivative_plot is None  # noqa: SLF001
+    assert "Raw / Filtered" not in plot._plot.getPlotItem().titleLabel.text  # noqa: SLF001
+
+    result = preprocess_sweep(
+        sweep,
+        SavitzkyGolaySettings(window_length=3, polyorder=1),
+    )
+    with pytest.raises(RuntimeError, match="Raw-only"):
+        plot.show_preprocessing(result)

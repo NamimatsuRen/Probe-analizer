@@ -28,10 +28,17 @@ def test_level1_window_starts(qtbot: object) -> None:
 
     assert window.windowTitle() == "Probe Analizer — Rawデータブラウザ"
     assert window.centralWidget() is not None
+    assert window._workspace_tabs.currentIndex() == 0  # noqa: SLF001
+    assert [  # noqa: SLF001
+        window._workspace_tabs.tabText(index)
+        for index in range(window._workspace_tabs.count())
+    ] == ["データ確認", "解析", "サマリー", "Export"]
     assert window._details_tabs.tabText(0) == "Sweep分割"  # noqa: SLF001
     assert window._details_tabs.tabText(1) == "Sweep一覧"  # noqa: SLF001
-    assert window._details_tabs.tabText(2) == "平滑化・微分"  # noqa: SLF001
-    assert window._details_tabs.tabText(3) == "Raw情報"  # noqa: SLF001
+    assert window._details_tabs.tabText(2) == "Raw情報"  # noqa: SLF001
+    assert window._details_tabs.count() == 3  # noqa: SLF001
+    assert window._sweep_iv_plot.analysis_enabled is False  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.analysis_enabled is True  # noqa: SLF001
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
     assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001
@@ -50,6 +57,11 @@ def test_level1_window_starts(qtbot: object) -> None:
     for index in range(window._details_tabs.count()):  # noqa: SLF001
         window._details_tabs.setCurrentIndex(index)  # noqa: SLF001
         assert window._raw_plot.isVisibleTo(window)  # noqa: SLF001
+
+    preprocessing_before = window._preprocessing_panel.result  # noqa: SLF001
+    for index in range(window._workspace_tabs.count()):  # noqa: SLF001
+        window._workspace_tabs.setCurrentIndex(index)  # noqa: SLF001
+    assert window._preprocessing_panel.result is preprocessing_before  # noqa: SLF001
 
 
 def test_level1_window_loads_folder_and_first_series(qtbot: object, tmp_path: Path) -> None:
@@ -269,12 +281,16 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
         window._preprocessing_panel.selected_sweep_id
         == window._state.sweeps[0].sweep_id
     )
+    assert window._preprocessing_panel.result is None  # noqa: SLF001
+    assert window._sweep_iv_plot.preprocessed is None  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.preprocessed is None  # noqa: SLF001
+    window._preprocessing_panel._run_button.click()  # noqa: SLF001
     assert window._preprocessing_panel.result is not None  # noqa: SLF001
-    assert window._sweep_iv_plot.preprocessed is not None  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     original_sweeps = window._state.sweeps  # noqa: SLF001
     original_sweep_generation = window._sweep_generation  # noqa: SLF001
     original_iv_sweep = window._sweep_iv_plot.selected_sweep  # noqa: SLF001
-    original_preprocessed = window._sweep_iv_plot.preprocessed  # noqa: SLF001
+    original_preprocessed = window._analysis_sweep_iv_plot.preprocessed  # noqa: SLF001
     selected_before_preview = window._state.selected_sweep  # noqa: SLF001
     assert selected_before_preview is not None
     assert window._raw_plot.displayed_series_id == "shot-001/current"  # noqa: SLF001
@@ -285,7 +301,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_generation == original_sweep_generation  # noqa: SLF001
     assert window._sweep_task is None  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep is original_iv_sweep  # noqa: SLF001
-    assert window._sweep_iv_plot.preprocessed is original_preprocessed  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.preprocessed is original_preprocessed  # noqa: SLF001
     assert selected_before_preview.current_time_offset_s == 0.0
     assert window._raw_plot.preview_current_time_offset_s == 0.02  # noqa: SLF001
     assert window._raw_plot.highlighted_interval_ms == pytest.approx(  # noqa: SLF001
@@ -322,9 +338,14 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._state.selected_sweep == second_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep == second_sweep  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.selected_sweep == second_sweep  # noqa: SLF001
     assert window._preprocessing_panel.selected_sweep_id == second_sweep.sweep_id  # noqa: SLF001
+    assert window._preprocessing_panel.result is None  # noqa: SLF001
+    assert window._sweep_iv_plot.preprocessed is None  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.preprocessed is None  # noqa: SLF001
+    window._preprocessing_panel._run_button.click()  # noqa: SLF001
     assert window._preprocessing_panel.result is not None  # noqa: SLF001
-    assert window._sweep_iv_plot.preprocessed is not None  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     np.testing.assert_allclose(  # noqa: SLF001
@@ -382,6 +403,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_browser.exclusion_count == 0  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep is None  # noqa: SLF001
     assert window._sweep_iv_plot.selected_sweep is None  # noqa: SLF001
+    assert window._analysis_sweep_iv_plot.selected_sweep is None  # noqa: SLF001
     assert window._preprocessing_panel.selected_sweep_id is None  # noqa: SLF001
     assert window._preprocessing_panel.result is None  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001

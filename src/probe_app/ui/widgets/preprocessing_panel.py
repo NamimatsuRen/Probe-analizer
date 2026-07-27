@@ -44,7 +44,7 @@ class PreprocessingPanel(QWidget):
         self._run_button.setEnabled(False)
         self._run_button.clicked.connect(self._emit_request)
 
-        self._status = QLabel("Sweepを選択すると既定設定で前処理します")
+        self._status = QLabel("Sweepを選択して前処理を実行してください")
         self._status.setObjectName("preprocessingStatus")
         self._status.setWordWrap(True)
         self._status.setStyleSheet("color: #556070;")
@@ -86,7 +86,21 @@ class PreprocessingPanel(QWidget):
         self._window_length.setValue(settings.window_length)
         self._polyorder.setValue(settings.polyorder)
 
-    def clear(self, message: str = "Sweepを選択すると既定設定で前処理します") -> None:
+    def select_sweep(self, sweep_id: str) -> None:
+        if not sweep_id.strip():
+            raise ValueError("sweep_id cannot be empty")
+        if self._selected_sweep_id == sweep_id and self._result is not None:
+            return
+        self._selected_sweep_id = sweep_id
+        self._result = None
+        self._run_button.setEnabled(True)
+        self._status.setStyleSheet("color: #556070;")
+        self._status.setText(
+            f"{sweep_id}\n未実行です。設定を確認して「前処理を再計算」を押してください。"
+        )
+        self._status.setToolTip("")
+
+    def clear(self, message: str = "Sweepを選択して前処理を実行してください") -> None:
         self._selected_sweep_id = None
         self._result = None
         self._run_button.setEnabled(False)

@@ -8,6 +8,7 @@ from PySide6.QtCore import QSettings, Qt, QThreadPool
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -81,9 +82,11 @@ class MainWindow(QMainWindow):
         self._metadata = MetadataPanel()
         self._sweep_panel = SweepSplitPanel()
         self._sweep_browser = SweepBrowser()
-        self._sweep_iv_plot = SweepIVPlot()
+        self._sweep_iv_plot = SweepIVPlot(analysis_enabled=False)
+        self._analysis_sweep_iv_plot = SweepIVPlot()
         self._preprocessing_panel = PreprocessingPanel()
         self._details_tabs = QTabWidget()
+        self._workspace_tabs = QTabWidget()
         self._status = StatusPanel()
         self._build_layout()
         self._build_toolbar()
@@ -108,14 +111,13 @@ class MainWindow(QMainWindow):
         left.setStretchFactor(1, 2)
         left.setSizes([450, 310])
 
-        self._analysis_workspace = QSplitter(Qt.Orientation.Vertical)
-        self._analysis_workspace.setObjectName("analysisWorkspace")
+        self._data_workspace = QSplitter(Qt.Orientation.Vertical)
+        self._data_workspace.setObjectName("dataConfirmationWorkspace")
         self._sweep_iv_plot.setObjectName("primaryIVPlot")
         self._raw_plot.setObjectName("secondaryRawPlot")
-        self._details_tabs.setObjectName("analysisControlTabs")
+        self._details_tabs.setObjectName("dataConfirmationControlTabs")
         self._details_tabs.addTab(self._sweep_panel, "Sweep分割")
         self._details_tabs.addTab(self._sweep_browser, "Sweep一覧")
-        self._details_tabs.addTab(self._preprocessing_panel, "平滑化・微分")
         self._details_tabs.addTab(self._metadata, "Raw情報")
 
         self._lower_workspace = QSplitter(Qt.Orientation.Horizontal)
@@ -127,15 +129,44 @@ class MainWindow(QMainWindow):
         self._lower_workspace.setStretchFactor(1, 1)
         self._lower_workspace.setSizes([640, 320])
 
-        self._analysis_workspace.addWidget(self._sweep_iv_plot)
-        self._analysis_workspace.addWidget(self._lower_workspace)
+        self._data_workspace.addWidget(self._sweep_iv_plot)
+        self._data_workspace.addWidget(self._lower_workspace)
+        self._data_workspace.setStretchFactor(0, 5)
+        self._data_workspace.setStretchFactor(1, 2)
+        self._data_workspace.setSizes([520, 240])
+
+        self._analysis_workspace = QSplitter(Qt.Orientation.Vertical)
+        self._analysis_workspace.setObjectName("analysisWorkspace")
+        self._analysis_sweep_iv_plot.setObjectName("analysisIVPlot")
+        self._preprocessing_panel.setObjectName("analysisPreprocessingControls")
+        self._analysis_workspace.addWidget(self._analysis_sweep_iv_plot)
+        self._analysis_workspace.addWidget(self._preprocessing_panel)
         self._analysis_workspace.setStretchFactor(0, 5)
         self._analysis_workspace.setStretchFactor(1, 2)
         self._analysis_workspace.setSizes([520, 240])
 
+        self._workspace_tabs.setObjectName("primaryWorkspaceTabs")
+        self._workspace_tabs.addTab(self._data_workspace, "データ確認")
+        self._workspace_tabs.addTab(self._analysis_workspace, "解析")
+        self._workspace_tabs.addTab(
+            self._placeholder_workspace(
+                "解析結果はまだありません",
+                "解析済みSweepの T_i・Phi・品質をshotや位置ごとに比較する画面です。",
+            ),
+            "サマリー",
+        )
+        self._workspace_tabs.addTab(
+            self._placeholder_workspace(
+                "Export対象はまだありません",
+                "採用した解析結果から論文用プロットを構成し、図と根拠情報を出力する画面です。",
+            ),
+            "Export",
+        )
+        self._workspace_tabs.setCurrentIndex(0)
+
         content = QSplitter(Qt.Orientation.Horizontal)
         content.addWidget(left)
-        content.addWidget(self._analysis_workspace)
+        content.addWidget(self._workspace_tabs)
         content.setStretchFactor(0, 1)
         content.setStretchFactor(1, 4)
         content.setSizes([360, 920])
@@ -146,6 +177,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(content, 1)
         layout.addWidget(self._status)
         self.setCentralWidget(root)
+
+    @staticmethod
+    def _placeholder_workspace(title: str, description: str) -> QWidget:
+        title_label = QLabel(f"<h2>{title}</h2><p>{description}</p>")
+        title_label.setWordWrap(True)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet("color: #556070; padding: 32px;")
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.addStretch(1)
+        layout.addWidget(title_label)
+        layout.addStretch(1)
+        return container
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("ファイル")
@@ -478,10 +522,8 @@ class MainWindow(QMainWindow):
                 return
             self._raw_plot.highlight_sweep(selected_sweep)
             self._sweep_iv_plot.show_sweep(selected_sweep)
-            self._apply_preprocessing(
-                selected_sweep,
-                self._preprocessing_panel.settings(),
-            )
+            self._analysis_sweep_iv_plot.show_sweep(selected_sweep)
+            self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
             self._render_actions()
 
     def _current_time_offset_preview_changed(self, offset_s: float) -> None:
@@ -516,10 +558,12 @@ class MainWindow(QMainWindow):
             result = preprocess_sweep(sweep, settings)
         except (PreprocessingError, ValueError) as error:
             LOGGER.info("Sweep preprocessing failed for %s: %s", sweep.sweep_id, error)
-            self._sweep_iv_plot.clear_preprocessing("dI/dV — 設定を確認してください")
+            self._analysis_sweep_iv_plot.clear_preprocessing(
+                "dI/dV — 設定を確認してください"
+            )
             self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
             return
-        self._sweep_iv_plot.show_preprocessing(result)
+        self._analysis_sweep_iv_plot.show_preprocessing(result)
         self._preprocessing_panel.show_result(result)
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
@@ -637,17 +681,24 @@ class MainWindow(QMainWindow):
             plotted_sweep = self._sweep_iv_plot.selected_sweep
             if plotted_sweep is None or plotted_sweep.sweep_id != selected_sweep.sweep_id:
                 self._sweep_iv_plot.show_sweep(selected_sweep)
+            analysis_sweep = self._analysis_sweep_iv_plot.selected_sweep
+            if (
+                analysis_sweep is None
+                or analysis_sweep.sweep_id != selected_sweep.sweep_id
+            ):
+                self._analysis_sweep_iv_plot.show_sweep(selected_sweep)
             preprocessed = self._preprocessing_panel.result
             if preprocessed is None or preprocessed.sweep_id != selected_sweep.sweep_id:
-                self._apply_preprocessing(
-                    selected_sweep,
-                    self._preprocessing_panel.settings(),
+                self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
+                self._analysis_sweep_iv_plot.clear_preprocessing(
+                    "dI/dV — 前処理を実行してください"
                 )
-            elif self._sweep_iv_plot.preprocessed is not preprocessed:
-                self._sweep_iv_plot.show_preprocessing(preprocessed)
+            elif self._analysis_sweep_iv_plot.preprocessed is not preprocessed:
+                self._analysis_sweep_iv_plot.show_preprocessing(preprocessed)
         else:
             self._raw_plot.clear_sweep_highlight()
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
+            self._analysis_sweep_iv_plot.clear_plot(self._state.sweep_message)
             self._preprocessing_panel.clear(self._state.sweep_message)
         self._render_actions()
 
