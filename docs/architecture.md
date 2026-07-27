@@ -112,6 +112,11 @@ RoleAssignmentPanel
 - 保存先はOSのアプリ設定であり、測定フォルダへJSONやsidecarを作らない。
 - 保存設定内のseriesが現在のfolderに存在しなければ、そのroleだけ未割当へ戻す。
 - 読込・保存エラーは役割パネル内へ表示し、Raw閲覧は継続する。
+- 一括適用は、source shotで選んだ各roleの`channel_id`を対象shot内で照合する。`series_id`を
+  そのままコピーしない。
+- 適用scopeは現在のshot、catalog順で現在以降、catalog内の全shotの3種類とする。
+- roleごとのchannelが欠落または重複する対象shotは、部分保存せずshot全体をスキップする。
+  これにより既存の保存設定を誤って上書きしない。
 
 この接続後も、役割を設定せずフォルダを選ぶだけでLevel 1のRaw閲覧ができる性質は変わらない。
 
@@ -134,6 +139,12 @@ SweepSplitPanel
   構成する。
 - JSON設定やbasename規則を処理開始条件にしない。
 - seriesまたはroleが変わると、保持中のSweepと進行中taskを無効化する。
+- 完全なrole設定を選択・復元したときは、既定ONの自動分割を400 msのdebounce後に開始する。
+  対象shotが切り替わった場合は待機中の処理を破棄する。
+- 一括適用は対象shotの設定を保存するが、背景で全shotの巨大配列を同時に読み込まない。
+  そのshotを表示した時点で保存設定を復元し、自動分割する。
+- 周期点数、sample範囲、current時間補正の編集中は自動分割しない。利用者が明示的に
+  再分割するため、連続入力でreader・補間・分割を繰り返さない。
 - taskのcallbackはgeneration一致時だけ`AppState`へ適用する。
 - 分割の失敗・キャンセル後もcatalog、Raw表示、役割設定は維持する。
 
@@ -150,7 +161,7 @@ SweepSplitPanel
   その他の系列ならSweep電圧基準時刻を使う。I–Vと選択情報には適用済み補正値を明示する。
 - current時間補正の`valueChanged`はRaw highlightの表示座標だけを更新する。未適用プレビュー中は
   `AppState.sweeps`、I–V、前処理結果、background task generationを変更しない。
-- 補正値は「Sweep分割を実行」で初めてrequestへ取り込み、成功後にプレビューを適用済みへ移す。
+- 補正値は「今すぐ分割／再分割」で初めてrequestへ取り込み、成功後にプレビューを適用済みへ移す。
 - I–Vの既定対象はsample半開区間`[200000, 500000)`、Raw表示はreaderが返した全時間範囲とする。
 - domainの時間単位は秒を維持し、Raw軸・metadata・Sweep一覧・除外区間・説明文はUI境界でmsへ変換する。
 - `analysis`は`domain`だけに依存し、PySide6・pyqtgraph・readerをimportしない。

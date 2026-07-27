@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -22,12 +24,14 @@ from probe_app.domain.models.series_role import (
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
+from probe_app.domain.services import AssignmentApplyScope
 
 
 class RoleAssignmentPanel(QWidget):
     """Always-visible editor for physical roles and device conversions."""
 
     assignments_changed = Signal(object)
+    bulk_apply_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -41,6 +45,33 @@ class RoleAssignmentPanel(QWidget):
         self._voltage_scale = self._scale_spinbox(100.0)
         self._current_sign = self._sign_combo(-1.0)
         self._voltage_sign = self._sign_combo(1.0)
+        self._apply_scope = QComboBox()
+        self._apply_scope.setObjectName("roleAssignmentApplyScope")
+        self._apply_scope.addItem(
+            "現在のフォルダ（shot）のみ",
+            AssignmentApplyScope.CURRENT.value,
+        )
+        self._apply_scope.addItem(
+            "このフォルダ以降",
+            AssignmentApplyScope.REMAINING.value,
+        )
+        self._apply_scope.addItem(
+            "すべてのフォルダ",
+            AssignmentApplyScope.ALL.value,
+        )
+        self._apply_scope.setCurrentIndex(
+            self._apply_scope.findData(AssignmentApplyScope.CURRENT.value)
+        )
+        self._apply_scope.setToolTip(
+            "選択中のcurrent／sweep voltageのchannelを使って、"
+            "同じ測定フォルダ内のshotへ対応付けます"
+        )
+        self._apply_button = QPushButton("選択した範囲へ一括適用")
+        self._apply_button.setObjectName("applyRoleAssignments")
+        self._apply_button.setToolTip(
+            "系列名ではなくchannelを照合します。"
+            "対応するchannelがないshotは変更せずにスキップします。"
+        )
         self._summary = QLabel("役割を選択してください")
         self._summary.setWordWrap(True)
         self._persistence_status = QLabel("設定はまだ保存されていません")
@@ -54,6 +85,10 @@ class RoleAssignmentPanel(QWidget):
         form.addRow("sweep voltage系列", self._voltage_series)
         form.addRow("voltage倍率", self._voltage_scale)
         form.addRow("voltage符号", self._voltage_sign)
+        apply_row = QHBoxLayout()
+        apply_row.addWidget(self._apply_scope, 1)
+        apply_row.addWidget(self._apply_button)
+        form.addRow("適用範囲", apply_row)
 
         group = QGroupBox("解析系列の役割")
         group_layout = QVBoxLayout(group)
@@ -81,6 +116,7 @@ class RoleAssignmentPanel(QWidget):
                 control.valueChanged.connect(self._settings_changed)
             else:
                 control.currentIndexChanged.connect(self._settings_changed)
+        self._apply_button.clicked.connect(self._emit_bulk_apply)
         self.clear_context()
 
     @staticmethod
@@ -184,6 +220,24 @@ class RoleAssignmentPanel(QWidget):
             )
         return SeriesRoleAssignments(tuple(items))
 
+    @property
+    def apply_scope(self) -> AssignmentApplyScope:
+        scope = self._apply_scope.currentData()
+        try:
+            return AssignmentApplyScope(str(scope))
+        except ValueError:
+            return AssignmentApplyScope.CURRENT
+
+    def set_apply_scope(self, scope: AssignmentApplyScope) -> None:
+        index = self._apply_scope.findData(scope.value)
+        if index < 0:
+            raise ValueError(f"unknown assignment apply scope: {scope}")
+        self._apply_scope.setCurrentIndex(index)
+
+    @property
+    def bulk_apply_enabled(self) -> bool:
+        return self._apply_button.isEnabled()
+
     def _replace_series_items(
         self,
         combo: QComboBox,
@@ -245,6 +299,11 @@ class RoleAssignmentPanel(QWidget):
         self._persistence_status.setText("設定を保存しています…")
         self.assignments_changed.emit(assignments)
 
+    def _emit_bulk_apply(self) -> None:
+        if self._shot_id is None or not self.assignments().is_complete:
+            return
+        self.bulk_apply_requested.emit(self.apply_scope)
+
     def _render_summary(self, assignments: SeriesRoleAssignments) -> None:
         current = assignments.for_role(SeriesRole.CURRENT)
         voltage = assignments.for_role(SeriesRole.SWEEP_VOLTAGE)
@@ -256,6 +315,9 @@ class RoleAssignmentPanel(QWidget):
             f"sweep voltage: {voltage_text}\n"
             f"{ready}"
         )
+        self._apply_button.setEnabled(
+            self._shot_id is not None and assignments.is_complete
+        )
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         for control in (
@@ -265,8 +327,10 @@ class RoleAssignmentPanel(QWidget):
             self._voltage_scale,
             self._current_sign,
             self._voltage_sign,
+            self._apply_scope,
         ):
             control.setEnabled(enabled)
+        self._apply_button.setEnabled(enabled and self.assignments().is_complete)
 
     def _combo_for_role(self, role: SeriesRole) -> QComboBox:
         return self._current_series if role is SeriesRole.CURRENT else self._voltage_series

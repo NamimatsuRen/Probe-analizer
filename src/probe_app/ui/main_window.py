@@ -4,7 +4,7 @@ import logging
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt, QThreadPool
+from PySide6.QtCore import QSettings, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -46,6 +46,10 @@ from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
 from probe_app.domain.models.summary import SummaryScope, SummaryScopeKind
 from probe_app.domain.models.sweep import Sweep
+from probe_app.domain.services import (
+    AssignmentApplyScope,
+    propagate_role_assignments,
+)
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
     AnalysisWorkspace,
@@ -74,7 +78,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.setWindowTitle("Probe Analizer — Rawデータブラウザ")
-        self.resize(1280, 760)
+        self.resize(1440, 800)
 
         self._state = AppState()
         self._settings = (
@@ -92,12 +96,18 @@ class MainWindow(QMainWindow):
         self._scan_task: FolderScanTask | None = None
         self._load_task: SeriesLoadTask | None = None
         self._sweep_task: SweepSplitTask | None = None
+        self._auto_sweep_shot_id: str | None = None
+        self._auto_sweep_timer = QTimer(self)
+        self._auto_sweep_timer.setSingleShot(True)
+        self._auto_sweep_timer.setInterval(400)
 
         self._data_browser = DataBrowser()
         self._role_panel = RoleAssignmentPanel()
         self._raw_plot = RawPlot()
         self._metadata = MetadataPanel()
         self._sweep_panel = SweepSplitPanel()
+        auto_sweep = self._settings.value("autoSweepSplit", True, type=bool)
+        self._sweep_panel.set_auto_run_enabled(bool(auto_sweep))
         self._sweep_browser = SweepBrowser()
         self._sweep_iv_plot = SweepIVPlot(analysis_enabled=False)
         self._analysis_workspace = AnalysisWorkspace()
@@ -112,11 +122,18 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._data_browser.series_selected.connect(self._load_series)
         self._role_panel.assignments_changed.connect(self._role_assignments_changed)
+        self._role_panel.bulk_apply_requested.connect(
+            self._bulk_apply_role_assignments
+        )
         self._sweep_panel.run_requested.connect(self._start_sweep_split)
         self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
+        self._sweep_panel.auto_run_changed.connect(
+            self._auto_sweep_setting_changed
+        )
         self._sweep_panel.current_time_offset_preview_changed.connect(
             self._current_time_offset_preview_changed
         )
+        self._auto_sweep_timer.timeout.connect(self._run_scheduled_sweep_split)
         self._sweep_browser.sweep_selected.connect(self._sweep_selected)
         self._preprocessing_panel.run_requested.connect(
             self._preprocessing_requested
@@ -296,6 +313,7 @@ class MainWindow(QMainWindow):
     def _load_series(self, descriptor_object: object) -> None:
         if not isinstance(descriptor_object, RawSeriesDescriptor):
             return
+        self._cancel_scheduled_sweep_split()
         self._invalidate_sweep_task()
         if self._state.catalog is not None:
             self._state = self._state.select_series(descriptor_object.series_id)
@@ -328,6 +346,8 @@ class MainWindow(QMainWindow):
             self._role_panel.clear_context()
             return
         if self._state.role_assignment_shot_id == shot_id:
+            if self._state.role_assignments.is_complete:
+                self._schedule_auto_sweep_split(shot_id)
             return
 
         descriptors = catalog.series_for_shot(shot_id)
@@ -358,6 +378,8 @@ class MainWindow(QMainWindow):
             self._role_panel.set_persistence_status("保存済み設定を復元しました")
         else:
             self._role_panel.set_persistence_status("役割を選択してください")
+        if assignments.is_complete:
+            self._schedule_auto_sweep_split(shot_id)
 
     def _role_assignments_changed(self, assignments_object: object) -> None:
         if not isinstance(assignments_object, SeriesRoleAssignments):
@@ -367,6 +389,7 @@ class MainWindow(QMainWindow):
         if shot_id is None or folder is None:
             return
 
+        self._cancel_scheduled_sweep_split()
         self._invalidate_sweep_task()
         self._state = self._state.set_role_assignments(shot_id, assignments_object)
         self._render_sweep_panel()
@@ -378,11 +401,122 @@ class MainWindow(QMainWindow):
                 "設定を保存できませんでした。Raw表示はそのまま利用できます。",
                 error=True,
             )
+            if assignments_object.is_complete:
+                self._schedule_auto_sweep_split(shot_id)
             return
         suffix = "（未割当あり）" if not assignments_object.is_complete else ""
         self._role_panel.set_persistence_status(f"設定を保存しました{suffix}")
+        if assignments_object.is_complete:
+            self._schedule_auto_sweep_split(shot_id)
+
+    def _bulk_apply_role_assignments(self, scope_object: object) -> None:
+        if not isinstance(scope_object, AssignmentApplyScope):
+            return
+        catalog = self._state.catalog
+        folder = self._state.folder
+        shot_id = self._state.role_assignment_shot_id
+        assignments = self._state.role_assignments
+        if (
+            catalog is None
+            or folder is None
+            or shot_id is None
+            or not assignments.is_complete
+        ):
+            self._role_panel.set_persistence_status(
+                "currentとsweep voltageを選択してから一括適用してください。",
+                error=True,
+            )
+            return
+
+        try:
+            result = propagate_role_assignments(
+                catalog,
+                shot_id,
+                assignments,
+                scope_object,
+            )
+        except ValueError as error:
+            self._role_panel.set_persistence_status(str(error), error=True)
+            return
+
+        save_failures: list[str] = []
+        saved_count = 0
+        for target in result.assignments:
+            try:
+                self._assignment_store.save(
+                    folder,
+                    target.shot_id,
+                    target.assignments,
+                )
+            except RoleAssignmentStoreError as error:
+                LOGGER.warning(
+                    "Bulk role assignment save failed for %s: %s",
+                    target.shot_id,
+                    error,
+                )
+                save_failures.append(
+                    f"{target.shot_id}: 設定を保存できませんでした"
+                )
+                continue
+            saved_count += 1
+
+        skipped = [
+            f"{failure.shot_id}: {failure.reason}"
+            for failure in result.failures
+        ]
+        skipped.extend(save_failures)
+        if skipped:
+            message = (
+                f"{saved_count} shotへ一括適用しました。"
+                f"{len(skipped)} shotは変更していません。\n"
+                + "\n".join(skipped)
+            )
+        else:
+            message = f"{saved_count} shotへ一括適用しました"
+        self._role_panel.set_persistence_status(message, error=bool(skipped))
+        self._schedule_auto_sweep_split(shot_id)
+
+    def _auto_sweep_setting_changed(self, enabled: bool) -> None:
+        self._settings.setValue("autoSweepSplit", enabled)
+        if not enabled:
+            self._cancel_scheduled_sweep_split()
+            return
+        shot_id = self._state.role_assignment_shot_id
+        if shot_id is not None and self._state.role_assignments.is_complete:
+            self._schedule_auto_sweep_split(shot_id)
+
+    def _schedule_auto_sweep_split(self, shot_id: str) -> None:
+        if (
+            not self._sweep_panel.auto_run_enabled
+            or self._sweep_task is not None
+            or self._state.role_assignment_shot_id != shot_id
+            or not self._state.role_assignments.is_complete
+        ):
+            return
+        self._auto_sweep_shot_id = shot_id
+        self._auto_sweep_timer.start()
+        self._render_actions()
+
+    def _cancel_scheduled_sweep_split(self) -> None:
+        self._auto_sweep_timer.stop()
+        self._auto_sweep_shot_id = None
+
+    def _run_scheduled_sweep_split(self) -> None:
+        shot_id = self._auto_sweep_shot_id
+        self._auto_sweep_shot_id = None
+        if (
+            shot_id is None
+            or not self._sweep_panel.auto_run_enabled
+            or self._state.role_assignment_shot_id != shot_id
+            or not self._state.role_assignments.is_complete
+            or self._sweep_task is not None
+        ):
+            self._render_actions()
+            return
+        self._start_sweep_split()
 
     def _start_sweep_split(self) -> None:
+        self._cancel_scheduled_sweep_split()
         catalog = self._state.catalog
         assignments = self._state.role_assignments
         if catalog is None or not assignments.is_complete:
@@ -705,6 +839,7 @@ class MainWindow(QMainWindow):
         self._render_state()
 
     def _cancel_tasks(self) -> None:
+        self._cancel_scheduled_sweep_split()
         if self._scan_task is not None:
             self._scan_task.cancel()
             self._scan_task = None
@@ -722,6 +857,7 @@ class MainWindow(QMainWindow):
         self._sweep_generation += 1
 
     def _cancel_sweep_split(self) -> None:
+        self._cancel_scheduled_sweep_split()
         self._invalidate_sweep_task()
         self._state = self._state.cancel_sweep_split()
         self._render_sweep_panel()
@@ -744,6 +880,7 @@ class MainWindow(QMainWindow):
             self._scan_task is not None
             or self._load_task is not None
             or self._sweep_task is not None
+            or self._auto_sweep_timer.isActive()
         )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)
         self._cancel_action.setEnabled(busy)
