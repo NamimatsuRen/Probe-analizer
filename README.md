@@ -2,9 +2,9 @@
 
 プローブ測定データを、フォルダから直接選んで確認・解析するデスクトップアプリです。
 
-開発ロードマップの **Level 3** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
-current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認、平滑化・微分比較まで
-実行できます。
+開発ロードマップの **Level 6** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
+current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認、平滑化・微分比較、
+`V_f`・`Phi`・飽和域・`T_i`の段階解析まで実行できます。
 
 ## 現在できること
 
@@ -44,7 +44,11 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - 非等間隔電圧の近似誤差を画面で警告
 - 起動時の「データ確認」と、数値処理を行う「解析」を最上位タブで分離
 - 解析タブで選択Sweep、解析Revision、前処理の未実行・完了・要確認・staleを表示
-- 将来追加する`V_f/Phi`、飽和域fit、`T_i` fit、品質判定を工程として明示
+- `V_f`のゼロ交差、`Phi`のlog交点／`dI/dV`ピーク候補を根拠付きで表示・選択
+- イオン／電子飽和域をロバスト直線fitし、`I_sat,i`、`I_sat,e`、`R`、`K`を算出
+- 選択した`Phi`と飽和パラメータからPANTAモデルの`T_i`を有界最適化
+- `T_i`目的関数、選択最小値、境界解、固定パラメータの品質警告を表示
+- 候補・範囲を編集しても自動再計算せず、解析ボタンを押したときだけLevel 4–6を実行
 - 最上位タブを切り替えただけでは前処理やSweep分割を再実行しない
 - サマリーで現在shotの全Sweepを1行ずつ表示し、未実行・実行中・有効・要確認・不適・
   エラー・再計算必要・除外を区別
@@ -114,7 +118,8 @@ uv run mypy
 ## 現段階で意図的に行わないこと
 
 - currentチャンネルとsweep voltageチャンネルの自動決定
-- 浮遊電位・プラズマ電位・飽和域・温度フィット
+- Raw側の多窓SG微分候補と4方式すべての`T_i`比較
+- Level 4–6結果の全Sweep一括バッチ解析
 
 current／sweep voltageは自動決定せず、利用者が画面から指定します。Rawプロットには`.hdr`の
 分解能・オフセットだけを適用し、追加倍率は後続のSweep解析で使用します。
@@ -172,6 +177,27 @@ Sweep.iv_voltage_v / iv_current_a
 `(V[-1] - V[0]) / (N - 1)`です。局所刻みが平均から5%を超えて外れる場合は、等間隔近似を
 確認するよう画面へ警告します。
 
+## Level 4–6（V_f・Phi・飽和域・T_i model fit）
+
+「解析」ワークスペースの右側インスペクタで、選択中の1 Sweepに対して次を明示的に実行します。
+
+1. `V_f`: 隣接点の符号変化を線形補間し、複数候補を保持する。
+2. `Phi`: Filtered電流の`log10(I)`を2領域でロバスト直線fitした交点と、正の`dI/dV`
+   局所ピークを候補にする。
+3. 飽和域: イオン側・電子側をロバスト直線fitし、`V_f`へ外挿して`I_sat,i/e`、`R`、`K`
+   を求める。
+4. `T_i`: 他のパラメータを固定したPANTAモデルを`Phi - 0.1 V`から`Phi`の範囲で評価し、
+   `0.1–10 eV`の有界1変数最適化で残差平方和を最小化する。
+
+既定範囲はlog Fit1が`10–15 V`、Fit2が`20–50 V`、イオン飽和域が`-35–-15 V`、
+電子飽和域が`20–50 V`です。候補や範囲の変更だけでは再計算されません。
+「V_f・Phi・飽和域・T_iを解析」を押したときだけ前処理から品質判定まで更新されます。
+結果はI–V上の縦線・飽和直線・PANTA曲線と、右側の数値・`T_i`目的関数で確認できます。
+
+`valid`は数値的に採用可能、`review`は境界解・一部方式失敗・簡易推定との差などを要確認、
+`bad`は`R`または`K`が設定した物理範囲外、`error`は必要点不足などで工程を完了できない状態です。
+最適化の成功だけで物理的妥当性を保証しないため、候補位置、fit線、目的関数を合わせて確認します。
+
 ## 設計資料
 
 - [アーキテクチャ](docs/architecture.md)
@@ -185,6 +211,7 @@ Sweep.iv_voltage_v / iv_current_a
 - [Level 3数値契約・golden test](docs/testing/level3-preprocessing.md)
 - [Level 3性能測定](docs/benchmarks/level3-2026-07-24.md)
 - [Level 3レビュー](docs/reviews/level3-preprocessing-2026-07-24.md)
+- [Level 4–6解析契約・回帰テスト](docs/testing/level4-6-analysis.md)
 - [サマリーワークスペース状態・集計契約](docs/usability/summary-workspace-contract-2026-07-27.md)
 - [Export論文図ビルダー仕様](docs/usability/export-figure-builder-spec-2026-07-27.md)
 - [4ワークスペース状態同期・無再計算テスト](docs/testing/workspace-regression.md)

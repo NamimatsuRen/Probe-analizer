@@ -30,7 +30,7 @@ def test_analysis_workspace_distinguishes_empty_and_not_run_states(
     assert "Sweep分割を実行" in workspace.context_text
     assert "未作成" in workspace.revision_text
     assert "未実行" in workspace.stage_text(AnalysisStage.PREPROCESSING)
-    assert "未実装" in workspace.stage_text(AnalysisStage.POTENTIAL)
+    assert "未実行" in workspace.stage_text(AnalysisStage.POTENTIAL)
 
     sweep = _sweep()
     workspace.render_state(sweep, None)
@@ -68,7 +68,7 @@ def test_analysis_workspace_shows_revision_stage_and_stale_reason(
     assert revision.cache_key[:10] in workspace.revision_text
     assert "要確認" in workspace.revision_text
     assert "要確認" in workspace.stage_text(AnalysisStage.PREPROCESSING)
-    assert "未実装" in workspace.stage_text(AnalysisStage.SATURATION)
+    assert "未実行" in workspace.stage_text(AnalysisStage.SATURATION)
 
     stale = record.mark_stale_from(
         AnalysisStage.PREPROCESSING,
