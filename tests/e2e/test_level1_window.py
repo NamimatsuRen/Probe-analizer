@@ -51,7 +51,7 @@ def test_level1_window_starts(qtbot: object) -> None:
     assert "未実行" in window._analysis_workspace.stage_text(  # noqa: SLF001
         AnalysisStage.PREPROCESSING
     )
-    assert "未実装" in window._analysis_workspace.stage_text(  # noqa: SLF001
+    assert "未実行" in window._analysis_workspace.stage_text(  # noqa: SLF001
         AnalysisStage.POTENTIAL
     )
     assert window._workspace_tabs.widget(2) is window._summary_workspace  # noqa: SLF001

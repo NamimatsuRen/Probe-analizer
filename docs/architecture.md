@@ -221,13 +221,43 @@ Level 4–8の機能をLevel 2の小タブへ追加し続けず、右側メイ�
 段階レール・中央キャンバス・右インスペクタを骨格にする推奨構成を採用した。
 通常時は工程を順に確認し、必要時だけ中央プロットの大表示と4方式比較へ切り替える。
 
-Level 3のshellでは次を実装済みとする。
+Level 3–6の解析ワークスペースでは次を実装済みとする。
 
 - 選択Sweepと解析Revision/statusを固定位置へ表示する。
 - 左の工程で前処理から品質までの現在地を表示する。
 - 中央でRaw/Filtered I–Vと`dI/dV`を表示する。
-- 右のインスペクタでSG設定を変更し、明示ボタンからだけ再計算する。
-- Level 4–6の工程は「未実装」と表示し、未実行や失敗と混同しない。
+- 右のインスペクタでSG設定、電位探索範囲、飽和域、`T_i`探索条件を変更する。
+- `V_f`と`Phi`の候補を保持し、選択候補の根拠を数値結果・プロットへ反映する。
+- 飽和域のロバストfit、`I_sat,i/e`、`R`、`K`を同じRevisionへ記録する。
+- PANTAモデルの`T_i` fitと目的関数を表示する。
+- 候補や設定の編集、タブ切替では計算せず、明示ボタンからだけ再計算する。
+- 工程の未実行、要確認、不適、エラー、staleを別状態として扱う。
+
+### Level 4–6の解析境界
+
+```text
+PreprocessedSweep + AnalysisSettings
+  └─ estimate_potentials()
+       ├─ zero-crossing candidates
+       ├─ robust log-fit intersection
+       └─ dI/dV peak candidates
+            └─ fit_saturation_regions()
+                 ├─ ion/electron robust fits
+                 └─ I_sat,i/e / R / K
+                      └─ fit_panta_temperature()
+                           ├─ bounded one-variable optimization
+                           └─ objective grid / quality
+                                └─ CompleteAnalysisResult
+```
+
+- `analysis`層はNumPy・SciPyとdomain型だけに依存し、PySide6・pyqtgraph・readerを知らない。
+- 各工程は失敗理由を型付き結果として返し、後段が未確定の場合も空値を正常値として保存しない。
+- `AnalysisSettings.as_revision_settings()`は範囲・候補・探索条件を安定した順序へ正規化し、
+  同一設定のRevision IDを再現可能にする。
+- UIは`CompleteAnalysisResult`をI–V overlay、目的関数、`AnalysisResultStore`へ投影する。
+- `V_f`候補変更はpotential以降、飽和域変更はsaturation以降、`T_i`条件変更はtemperature以降の
+  再計算を必要とする。現段階では安全側に倒し、Level 4–6の明示実行でまとめて更新する。
+- SummaryとExportは保存済み結果を読むだけで、この解析パイプラインを呼び出さない。
 
 比較した3案、代表タスク、採用した組み合わせは
 [解析ワークスペース UXプロトタイプ比較](usability/analysis-workspace-prototypes-2026-07-27.md)

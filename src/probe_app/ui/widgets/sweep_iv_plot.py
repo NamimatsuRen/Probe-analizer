@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
-from probe_app.analysis import PreprocessedSweep
+from probe_app.analysis import (
+    CompleteAnalysisResult,
+    PreprocessedSweep,
+    panta_current,
+)
 from probe_app.domain.models.raw_series import FloatArray
 from probe_app.domain.models.sweep import Sweep, SweepDirection
 
@@ -27,6 +32,12 @@ class SweepIVPlot(QWidget):
         self._preprocessed: PreprocessedSweep | None = None
         self._start_marker: pg.PlotDataItem | None = None
         self._end_marker: pg.PlotDataItem | None = None
+        self._vf_line: pg.InfiniteLine | None = None
+        self._phi_line: pg.InfiniteLine | None = None
+        self._derivative_phi_line: pg.InfiniteLine | None = None
+        self._ion_fit_curve: pg.PlotDataItem | None = None
+        self._electron_fit_curve: pg.PlotDataItem | None = None
+        self._model_curve: pg.PlotDataItem | None = None
 
         self._selection_info = QLabel("Sweep分割後に一覧から選択してください")
         self._selection_info.setObjectName("sweepIvSelectionInfo")
@@ -128,6 +139,7 @@ class SweepIVPlot(QWidget):
         self._preprocessed = None
         self._start_marker = None
         self._end_marker = None
+        self._reset_analysis_item_refs()
         self._plot.clear()
         self._plot.setTitle(self._empty_iv_title)
         if self._derivative_plot is not None:
@@ -140,6 +152,7 @@ class SweepIVPlot(QWidget):
         self._preprocessed = None
         self._filtered_curve = None
         self._derivative_curve = None
+        self._reset_analysis_item_refs()
         self._plot.clear()
         if self._derivative_plot is not None:
             self._derivative_plot.clear()
@@ -216,12 +229,122 @@ class SweepIVPlot(QWidget):
         self._plot.enableAutoRange()
         self._derivative_plot.enableAutoRange()
 
+    def show_analysis_result(self, result: CompleteAnalysisResult) -> None:
+        """Overlay selected potentials, saturation lines, and PANTA model."""
+
+        if not self._analysis_enabled or self._derivative_plot is None:
+            raise RuntimeError("analysis display is disabled for this Raw-only plot")
+        if (
+            self._selected_sweep is None
+            or result.preprocessed.sweep_id != self._selected_sweep.sweep_id
+        ):
+            raise ValueError("analysis result does not match the selected Sweep")
+        self._clear_analysis_overlays()
+        if result.potential is None:
+            return
+
+        vf_v = result.potential.selected_vf.value_v
+        phi_v = result.potential.selected_phi.value_v
+        self._vf_line = pg.InfiniteLine(
+            pos=vf_v,
+            angle=90,
+            pen=pg.mkPen("#16a34a", width=1.5, style=Qt.PenStyle.DashLine),
+            label="V_f",
+        )
+        self._phi_line = pg.InfiniteLine(
+            pos=phi_v,
+            angle=90,
+            pen=pg.mkPen("#ea580c", width=1.5, style=Qt.PenStyle.DashLine),
+            label="Phi",
+        )
+        self._derivative_phi_line = pg.InfiniteLine(
+            pos=phi_v,
+            angle=90,
+            pen=pg.mkPen("#ea580c", width=1.25, style=Qt.PenStyle.DashLine),
+        )
+        self._plot.addItem(self._vf_line)
+        self._plot.addItem(self._phi_line)
+        self._derivative_plot.addItem(self._derivative_phi_line)
+
+        if result.saturation is not None:
+            ion_voltage = np.linspace(
+                result.settings.saturation.ion_min_v,
+                vf_v,
+                160,
+                dtype=np.float64,
+            )
+            electron_voltage = np.linspace(
+                vf_v,
+                result.settings.saturation.electron_max_v,
+                240,
+                dtype=np.float64,
+            )
+            self._ion_fit_curve = self._plot.plot(
+                ion_voltage,
+                result.saturation.ion_fit.evaluate(ion_voltage),
+                pen=pg.mkPen("#0891b2", width=2.0, style=Qt.PenStyle.DashLine),
+                name="Ion saturation fit",
+            )
+            self._electron_fit_curve = self._plot.plot(
+                electron_voltage,
+                result.saturation.electron_fit.evaluate(electron_voltage),
+                pen=pg.mkPen("#2563eb", width=2.0, style=Qt.PenStyle.DashLine),
+                name="Electron saturation fit",
+            )
+
+        if result.saturation is not None and result.temperature is not None:
+            fit = result.temperature.selected_fit
+            model_mask = result.preprocessed.voltage_v >= fit.phi_v - 0.5
+            model_voltage = result.preprocessed.voltage_v[model_mask]
+            model_current = panta_current(
+                model_voltage,
+                ti_ev=fit.ti_ev,
+                phi_v=fit.phi_v,
+                vf_v=result.saturation.vf_v,
+                isat_i_a=result.saturation.isat_i_a,
+                r_ratio=result.saturation.r_ratio,
+                k_per_v=result.saturation.k_per_v,
+            )
+            finite = np.isfinite(model_current)
+            self._model_curve = self._plot.plot(
+                model_voltage[finite],
+                model_current[finite],
+                pen=pg.mkPen("#9333ea", width=2.25),
+                name=f"PANTA T_i={fit.ti_ev:.4g} eV",
+            )
+
+    def clear_analysis_result(self) -> None:
+        self._clear_analysis_overlays()
+
     def clear_preprocessing(self, message: str = "前処理を実行できません") -> None:
         if self._filtered_curve is not None:
             self._plot.removeItem(self._filtered_curve)
         self._filtered_curve = None
         self._derivative_curve = None
         self._preprocessed = None
+        self._clear_analysis_overlays()
         if self._derivative_plot is not None:
             self._derivative_plot.clear()
             self._derivative_plot.setTitle(message)
+
+    def _clear_analysis_overlays(self) -> None:
+        for item in (
+            self._vf_line,
+            self._phi_line,
+            self._ion_fit_curve,
+            self._electron_fit_curve,
+            self._model_curve,
+        ):
+            if item is not None:
+                self._plot.removeItem(item)
+        if self._derivative_plot is not None and self._derivative_phi_line is not None:
+            self._derivative_plot.removeItem(self._derivative_phi_line)
+        self._reset_analysis_item_refs()
+
+    def _reset_analysis_item_refs(self) -> None:
+        self._vf_line = None
+        self._phi_line = None
+        self._derivative_phi_line = None
+        self._ion_fit_curve = None
+        self._electron_fit_curve = None
+        self._model_curve = None

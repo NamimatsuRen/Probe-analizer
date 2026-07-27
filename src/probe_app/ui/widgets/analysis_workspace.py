@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QScrollArea,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -18,6 +19,7 @@ from probe_app.domain.models.analysis_result import (
     SweepAnalysisRecord,
 )
 from probe_app.domain.models.sweep import Sweep, SweepDirection
+from probe_app.ui.widgets.fit_analysis_panel import FitAnalysisPanel
 from probe_app.ui.widgets.preprocessing_panel import PreprocessingPanel
 from probe_app.ui.widgets.sweep_iv_plot import SweepIVPlot
 
@@ -52,6 +54,8 @@ class AnalysisWorkspace(QWidget):
         self.plot.setObjectName("analysisIVPlot")
         self.preprocessing_panel = PreprocessingPanel()
         self.preprocessing_panel.setObjectName("analysisPreprocessingControls")
+        self.fit_panel = FitAnalysisPanel()
+        self.fit_panel.setObjectName("analysisFitControls")
 
         self._context = QLabel("解析対象: Sweep未選択")
         self._context.setObjectName("analysisContext")
@@ -93,40 +97,33 @@ class AnalysisWorkspace(QWidget):
             stage_layout.addWidget(label)
         stage_layout.addStretch(1)
 
-        future_notice = QLabel(
-            "<b>次の実装段階</b><br>"
-            "V_f・Phi候補、飽和域fit、T_i model fit、品質判定は、"
-            "前処理の結果を土台にここへ順番に追加します。"
-        )
-        future_notice.setObjectName("analysisFutureStagesNotice")
-        future_notice.setWordWrap(True)
-        future_notice.setStyleSheet(
-            "background: #f8fafc; color: #475467; padding: 8px;"
-            " border: 1px solid #d0d5dd; border-radius: 4px;"
-        )
-
         inspector = QWidget()
         inspector.setObjectName("analysisInspector")
         inspector_layout = QVBoxLayout(inspector)
         inspector_layout.setContentsMargins(0, 0, 0, 0)
         inspector_layout.addWidget(self.preprocessing_panel)
-        inspector_layout.addWidget(future_notice)
+        inspector_layout.addWidget(self.fit_panel)
         inspector_layout.addStretch(1)
+
+        inspector_scroll = QScrollArea()
+        inspector_scroll.setObjectName("analysisInspectorScroll")
+        inspector_scroll.setWidgetResizable(True)
+        inspector_scroll.setWidget(inspector)
 
         body = QSplitter(Qt.Orientation.Horizontal)
         body.setObjectName("analysisWorkspaceBody")
         body.setChildrenCollapsible(False)
         body.addWidget(stage_group)
         body.addWidget(self.plot)
-        body.addWidget(inspector)
+        body.addWidget(inspector_scroll)
         body.setStretchFactor(0, 0)
         body.setStretchFactor(1, 5)
         body.setStretchFactor(2, 2)
         body.setSizes([170, 690, 290])
 
         self._impact = QLabel(
-            "前処理設定を変更して再計算すると、後続の電位・飽和域・温度・品質結果も"
-            "新しいRevisionで再評価されます。"
+            "前処理やFit設定を変更しても自動再計算しません。"
+            "明示ボタンを押した時だけ新しいRevisionで再評価します。"
         )
         self._impact.setObjectName("analysisImpactNotice")
         self._impact.setWordWrap(True)
@@ -213,9 +210,8 @@ class AnalysisWorkspace(QWidget):
         for stage in ANALYSIS_STAGE_ORDER:
             result = record.stage_result(stage) if record is not None else None
             if stage is not AnalysisStage.PREPROCESSING and result is None:
-                text = "準備中  未実装"
-                color = "#667085"
-                background = "#f2f4f7"
+                status = AnalysisStatus.NOT_RUN
+                text, color, background = _STATUS_PRESENTATION[status]
             else:
                 status = result.status if result is not None else AnalysisStatus.NOT_RUN
                 text, color, background = _STATUS_PRESENTATION[status]

@@ -18,8 +18,11 @@ from PySide6.QtWidgets import (
 )
 
 from probe_app.analysis import (
+    AnalysisSettings,
+    PreprocessedSweep,
     PreprocessingError,
     SavitzkyGolaySettings,
+    analyze_preprocessed,
     preprocess_sweep,
 )
 from probe_app.application.ports import RoleAssignmentStore
@@ -113,6 +116,7 @@ class MainWindow(QMainWindow):
         self._analysis_workspace = AnalysisWorkspace()
         self._analysis_sweep_iv_plot = self._analysis_workspace.plot
         self._preprocessing_panel = self._analysis_workspace.preprocessing_panel
+        self._fit_panel = self._analysis_workspace.fit_panel
         self._summary_workspace = SummaryWorkspace()
         self._export_workspace = ExportWorkspace()
         self._details_tabs = QTabWidget()
@@ -138,6 +142,7 @@ class MainWindow(QMainWindow):
         self._preprocessing_panel.run_requested.connect(
             self._preprocessing_requested
         )
+        self._fit_panel.run_requested.connect(self._full_analysis_requested)
         self._summary_workspace.sweep_selected.connect(
             self._summary_sweep_selected
         )
@@ -649,6 +654,7 @@ class MainWindow(QMainWindow):
             self._sweep_iv_plot.show_sweep(selected_sweep)
             self._analysis_sweep_iv_plot.show_sweep(selected_sweep)
             self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
+            self._fit_panel.select_sweep(selected_sweep.sweep_id)
             self._render_analysis_workspace()
             self._render_actions()
 
@@ -705,6 +711,9 @@ class MainWindow(QMainWindow):
 
         record = SweepAnalysisRecord.running(revision)
         self._state = self._state.record_analysis(record)
+        self._fit_panel.invalidate(
+            "前処理を再実行しています。後続解析は解析ボタンを押した時だけ更新します。"
+        )
         self._render_analysis_workspace()
         try:
             result = preprocess_sweep(sweep, settings)
@@ -763,10 +772,105 @@ class MainWindow(QMainWindow):
         self._preprocessing_panel.show_result(result)
         self._render_analysis_workspace()
 
+    def _full_analysis_requested(self, settings_object: object) -> None:
+        if not isinstance(settings_object, AnalysisSettings):
+            return
+        sweep = self._state.selected_sweep
+        if sweep is None:
+            self._fit_panel.clear("Sweepを選択してから解析を実行してください")
+            return
+        try:
+            preprocessing_settings = self._preprocessing_panel.settings()
+            revision = self._build_analysis_revision(
+                sweep,
+                preprocessing_settings,
+                settings_object,
+            )
+        except ValueError as error:
+            self._fit_panel.show_error(sweep.sweep_id, str(error))
+            return
+
+        record = SweepAnalysisRecord.running(revision)
+        self._state = self._state.record_analysis(record)
+        self._render_analysis_workspace()
+        try:
+            preprocessed = preprocess_sweep(sweep, preprocessing_settings)
+        except (PreprocessingError, ValueError) as error:
+            message = str(error)
+            failure = MethodOutcome(
+                method_id="savitzky_golay",
+                status=AnalysisStatus.ERROR,
+                message=message,
+            )
+            record = record.with_stage_result(
+                StageResult(
+                    stage=AnalysisStage.PREPROCESSING,
+                    status=AnalysisStatus.ERROR,
+                    methods=(failure,),
+                    message=message,
+                )
+            )
+            self._state, _ = self._state.record_analysis_if_current(record, revision)
+            self._preprocessing_panel.show_error(sweep.sweep_id, message)
+            self._fit_panel.show_error(sweep.sweep_id, message)
+            self._analysis_sweep_iv_plot.clear_preprocessing(
+                "dI/dV — 前処理設定を確認してください"
+            )
+            self._render_analysis_workspace()
+            return
+
+        preprocessing_stage = self._preprocessing_stage(preprocessed)
+        record = record.with_stage_result(preprocessing_stage)
+        complete = analyze_preprocessed(preprocessed, settings_object)
+        for index, stage_result in enumerate(complete.stage_results):
+            record = record.with_stage_result(
+                stage_result,
+                overall_status=(
+                    complete.status
+                    if index == len(complete.stage_results) - 1
+                    else None
+                ),
+            )
+        self._state, _ = self._state.record_analysis_if_current(record, revision)
+        self._preprocessing_panel.show_result(preprocessed)
+        self._analysis_sweep_iv_plot.show_preprocessing(preprocessed)
+        self._fit_panel.show_result(complete)
+        self._analysis_sweep_iv_plot.show_analysis_result(complete)
+        self._render_analysis_workspace()
+
+    @staticmethod
+    def _preprocessing_stage(result: PreprocessedSweep) -> StageResult:
+        status = (
+            AnalysisStatus.REVIEW
+            if result.spacing_warning
+            else AnalysisStatus.VALID
+        )
+        outcome = MethodOutcome(
+            method_id="savitzky_golay",
+            status=status,
+            message=result.spacing_warning,
+            metrics=(
+                (
+                    "max_spacing_deviation_fraction",
+                    result.max_spacing_deviation_fraction,
+                ),
+                ("polyorder", float(result.polyorder)),
+                ("used_window_length", float(result.used_window_length)),
+                ("voltage_step_v", result.voltage_step_v),
+            ),
+        )
+        return StageResult(
+            stage=AnalysisStage.PREPROCESSING,
+            status=status,
+            methods=(outcome,),
+            message=result.spacing_warning,
+        )
+
     def _build_analysis_revision(
         self,
         sweep: Sweep,
         settings: SavitzkyGolaySettings,
+        analysis_settings: AnalysisSettings | None = None,
     ) -> AnalysisInputRevision:
         folder = self._state.folder
         shot_id = self._state.role_assignment_shot_id
@@ -777,6 +881,11 @@ class MainWindow(QMainWindow):
                 "フォルダ・shot・current・sweep voltageの入力条件を確定できません"
             )
         split = self._sweep_panel.parameters()
+        fit_settings = (
+            analysis_settings
+            if analysis_settings is not None
+            else self._fit_panel.settings()
+        )
         return AnalysisInputRevision(
             folder_key=str(folder.resolve()),
             shot_id=shot_id,
@@ -803,6 +912,8 @@ class MainWindow(QMainWindow):
                 window_length=settings.window_length,
                 polyorder=settings.polyorder,
             ),
+            fit_settings=fit_settings.as_revision_settings(),
+            algorithm_version="level6-panta-v1",
             generation_id=self._sweep_generation,
         )
 
@@ -933,6 +1044,7 @@ class MainWindow(QMainWindow):
             preprocessed = self._preprocessing_panel.result
             if preprocessed is None or preprocessed.sweep_id != selected_sweep.sweep_id:
                 self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
+                self._fit_panel.select_sweep(selected_sweep.sweep_id)
                 self._analysis_sweep_iv_plot.clear_preprocessing(
                     "dI/dV — 前処理を実行してください"
                 )
@@ -943,6 +1055,7 @@ class MainWindow(QMainWindow):
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
             self._analysis_sweep_iv_plot.clear_plot(self._state.sweep_message)
             self._preprocessing_panel.clear(self._state.sweep_message)
+            self._fit_panel.clear(self._state.sweep_message)
         self._render_analysis_workspace()
         self._render_actions()
 
