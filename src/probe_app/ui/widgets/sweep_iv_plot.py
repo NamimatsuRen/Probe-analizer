@@ -12,8 +12,14 @@ from probe_app.domain.models.sweep import Sweep, SweepDirection
 class SweepIVPlot(QWidget):
     """Plot one selected sweep in voltage-ascending I–V order."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        analysis_enabled: bool = True,
+    ) -> None:
         super().__init__(parent)
+        self._analysis_enabled = analysis_enabled
         self._selected_sweep: Sweep | None = None
         self._curve: pg.PlotDataItem | None = None
         self._filtered_curve: pg.PlotDataItem | None = None
@@ -34,36 +40,49 @@ class SweepIVPlot(QWidget):
         self._plot.setObjectName("sweepIvPlot")
         self._plot.setBackground("w")
         self._plot.showGrid(x=True, y=True, alpha=0.2)
-        self._plot.setTitle("Sweep I–V — Raw / Filtered")
+        self._plot.setTitle(self._empty_iv_title)
         self._plot.setLabel("bottom", "Voltage", units="V")
         self._plot.setLabel("left", "Current", units="A")
         self._plot.getPlotItem().setMenuEnabled(True)
         self._plot.getViewBox().setMouseMode(pg.ViewBox.RectMode)
-        self._plot.addLegend(offset=(10, 10))
+        if self._analysis_enabled:
+            self._plot.addLegend(offset=(10, 10))
 
-        self._derivative_plot = pg.PlotWidget()
-        self._derivative_plot.setObjectName("sweepDerivativePlot")
-        self._derivative_plot.setBackground("w")
-        self._derivative_plot.showGrid(x=True, y=True, alpha=0.2)
-        self._derivative_plot.setTitle("dI/dV")
-        self._derivative_plot.setLabel("bottom", "Voltage", units="V")
-        self._derivative_plot.setLabel("left", "dI/dV", units="A/V")
-        self._derivative_plot.getPlotItem().setMenuEnabled(True)
-        self._derivative_plot.getViewBox().setMouseMode(pg.ViewBox.RectMode)
-        self._derivative_plot.setXLink(self._plot)
+        self._derivative_plot: pg.PlotWidget | None = None
+        plot_container: QWidget = self._plot
+        if self._analysis_enabled:
+            self._derivative_plot = pg.PlotWidget()
+            self._derivative_plot.setObjectName("sweepDerivativePlot")
+            self._derivative_plot.setBackground("w")
+            self._derivative_plot.showGrid(x=True, y=True, alpha=0.2)
+            self._derivative_plot.setTitle("dI/dV")
+            self._derivative_plot.setLabel("bottom", "Voltage", units="V")
+            self._derivative_plot.setLabel("left", "dI/dV", units="A/V")
+            self._derivative_plot.getPlotItem().setMenuEnabled(True)
+            self._derivative_plot.getViewBox().setMouseMode(pg.ViewBox.RectMode)
+            self._derivative_plot.setXLink(self._plot)
 
-        plot_splitter = QSplitter(Qt.Orientation.Vertical)
-        plot_splitter.setObjectName("sweepAnalysisPlotSplitter")
-        plot_splitter.addWidget(self._plot)
-        plot_splitter.addWidget(self._derivative_plot)
-        plot_splitter.setStretchFactor(0, 3)
-        plot_splitter.setStretchFactor(1, 2)
-        plot_splitter.setSizes([330, 210])
+            plot_splitter = QSplitter(Qt.Orientation.Vertical)
+            plot_splitter.setObjectName("sweepAnalysisPlotSplitter")
+            plot_splitter.addWidget(self._plot)
+            plot_splitter.addWidget(self._derivative_plot)
+            plot_splitter.setStretchFactor(0, 3)
+            plot_splitter.setStretchFactor(1, 2)
+            plot_splitter.setSizes([330, 210])
+            plot_container = plot_splitter
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._selection_info)
-        layout.addWidget(plot_splitter, 1)
+        layout.addWidget(plot_container, 1)
+
+    @property
+    def analysis_enabled(self) -> bool:
+        return self._analysis_enabled
+
+    @property
+    def _empty_iv_title(self) -> str:
+        return "Sweep I–V — Raw / Filtered" if self._analysis_enabled else "Sweep I–V — Raw"
 
     @property
     def selected_sweep(self) -> Sweep | None:
@@ -110,9 +129,10 @@ class SweepIVPlot(QWidget):
         self._start_marker = None
         self._end_marker = None
         self._plot.clear()
-        self._derivative_plot.clear()
-        self._plot.setTitle("Sweep I–V — Raw / Filtered")
-        self._derivative_plot.setTitle("dI/dV")
+        self._plot.setTitle(self._empty_iv_title)
+        if self._derivative_plot is not None:
+            self._derivative_plot.clear()
+            self._derivative_plot.setTitle("dI/dV")
         self._selection_info.setText(message)
 
     def show_sweep(self, sweep: Sweep) -> None:
@@ -121,7 +141,8 @@ class SweepIVPlot(QWidget):
         self._filtered_curve = None
         self._derivative_curve = None
         self._plot.clear()
-        self._derivative_plot.clear()
+        if self._derivative_plot is not None:
+            self._derivative_plot.clear()
         direction = "上昇" if sweep.direction is SweepDirection.UP else "下降"
         color = "#2563eb" if sweep.direction is SweepDirection.UP else "#d97706"
         self._curve = self._plot.plot(
@@ -149,12 +170,15 @@ class SweepIVPlot(QWidget):
             symbolBrush="#dc2626",
             symbolPen="#991b1b",
         )
-        self._plot.setTitle(f"Sweep I–V — {direction} — Raw / Filtered")
-        self._derivative_plot.setTitle("dI/dV — 前処理待ち")
+        suffix = "Raw / Filtered" if self._analysis_enabled else "Raw"
+        self._plot.setTitle(f"Sweep I–V — {direction} — {suffix}")
+        if self._derivative_plot is not None:
+            self._derivative_plot.setTitle("dI/dV — 前処理を実行してください")
         self._plot.setLabel("bottom", "Voltage", units="V")
         self._plot.setLabel("left", "Current", units="A")
         self._plot.enableAutoRange()
-        self._derivative_plot.enableAutoRange()
+        if self._derivative_plot is not None:
+            self._derivative_plot.enableAutoRange()
         self._selection_info.setText(
             f"選択Sweep: {sweep.sweep_id} ｜ 取得方向: {direction} ｜ "
             f"current: {sweep.current_series_id} [A] ｜ "
@@ -164,6 +188,8 @@ class SweepIVPlot(QWidget):
         )
 
     def show_preprocessing(self, result: PreprocessedSweep) -> None:
+        if not self._analysis_enabled or self._derivative_plot is None:
+            raise RuntimeError("preprocessing display is disabled for this Raw-only plot")
         if self._selected_sweep is None or result.sweep_id != self._selected_sweep.sweep_id:
             raise ValueError("preprocessing result does not match the selected Sweep")
         if self._filtered_curve is not None:
@@ -196,5 +222,6 @@ class SweepIVPlot(QWidget):
         self._filtered_curve = None
         self._derivative_curve = None
         self._preprocessed = None
-        self._derivative_plot.clear()
-        self._derivative_plot.setTitle(message)
+        if self._derivative_plot is not None:
+            self._derivative_plot.clear()
+            self._derivative_plot.setTitle(message)

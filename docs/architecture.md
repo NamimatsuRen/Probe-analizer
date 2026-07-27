@@ -178,3 +178,119 @@ AppState.selected_sweep_id
 - 10,000点・窓501の実測中央値は2.181 msであり、GUIスレッド内計算でも200 ms目標に十分な
   余裕がある。点数・窓が大幅に増える場合はbackground化を再評価する。
 - architecture testで`domain`と`analysis`からPySide6・pyqtgraphへの依存がないことを固定する。
+
+## Level 4以降のワークスペース情報設計
+
+Level 4–8の機能をLevel 2の小タブへ追加し続けず、右側メイン領域を次の4ワークスペースへ
+分ける。詳細な決定理由と状態表は
+[ADR 0004](adr/0004-workspace-information-architecture.md)を参照する。
+
+```text
+共有コンテキスト（左側）
+  Folder / Shot / Series / 系列役割
+             │
+             └─ AppState.selected_sweep_id（単一Sweep選択の正規ソース）
+
+右側の最上位ワークスペース
+  ├─ データ確認  Raw全波形 / Raw I–V / Sweep分割・一覧・Raw情報
+  ├─ 解析        前処理 / V_f・Phi / saturation / T_i / quality
+  ├─ サマリー    shot・複数shot・位置の比較、除外、drill-down
+  └─ Export      論文図preview、vector/raster、CSV、manifest
+```
+
+- 起動時は「データ確認」を開く。
+- データ確認にはFiltered、`dI/dV`、fit結果を表示しない。
+- タブ切替は計算トリガーにしない。計算は明示操作からだけ開始する。
+- Data/Analysisは選択Sweepを扱う。Summary/Exportの集約scopeは別の型として扱う。
+- Summaryの点から解析へ移動するときだけ、対象Sweepを共有selectionへ設定する。
+- stale/error/excluded/partial-successを結果なしとして黙って落とさない。
+- current revisionと一致しない結果は既定のSummary集計とExport対象から除外する。
+
+解析ワークスペースは3案を代表タスクで比較し、2026-07-27の利用者確認で、
+段階レール・中央キャンバス・右インスペクタを骨格にする推奨構成を採用した。
+通常時は工程を順に確認し、必要時だけ中央プロットの大表示と4方式比較へ切り替える。
+
+Level 3のshellでは次を実装済みとする。
+
+- 選択Sweepと解析Revision/statusを固定位置へ表示する。
+- 左の工程で前処理から品質までの現在地を表示する。
+- 中央でRaw/Filtered I–Vと`dI/dV`を表示する。
+- 右のインスペクタでSG設定を変更し、明示ボタンからだけ再計算する。
+- Level 4–6の工程は「未実装」と表示し、未実行や失敗と混同しない。
+
+比較した3案、代表タスク、採用した組み合わせは
+[解析ワークスペース UXプロトタイプ比較](usability/analysis-workspace-prototypes-2026-07-27.md)
+に記録する。
+
+### サマリーワークスペースの読取境界
+
+サマリーは`AnalysisResultStore`を読み取るprojectionであり、解析処理の呼び出し元にはしない。
+
+```text
+AppState.sweeps + AnalysisResultStore + current AnalysisInputRevision
+  └─ build_summary_snapshot()                 application query（副作用なし）
+       └─ SummarySnapshot
+            ├─ scope / 集計分母
+            ├─ 全Sweepの状態行
+            └─ 4方式のPhi・T_i・K
+                 └─ SummaryWorkspace
+                      ├─ 状態件数
+                      ├─ Sweep一覧
+                      └─ 解析へのdrill-down
+```
+
+- `SummaryScope`はData/Analysisの単一Sweep選択と別の型で保持する。
+- 現段階のscopeは読み込んだ現在shot。複数shotと位置はLevel 7で段階的に追加する。
+- 全Sweepを1行ずつprojectionし、未実行・失敗・stale・除外を暗黙に落とさない。
+- 前処理だけ完了し`T_i`工程が未実行のrecordは、サマリーでは「未実行」とする。
+- 既定集計はcurrent revisionと一致する`valid` / `review`だけを分母候補にする。
+- 別Revisionしか存在しないSweepは「再計算必要」として表示し、既定集計には入れない。
+- 4方式の安定IDをdomainで定義し、未実装の方式も空欄ではなく「未実行」と表示する。
+- 行選択は共有`selected_sweep_id`へ反映し、「解析で確認」で解析タブへ移動する。
+- タブ表示・行選択・drill-downはreader、前処理、fitを実行しない。
+
+詳細は
+[サマリーワークスペース状態・集計契約](usability/summary-workspace-contract-2026-07-27.md)
+に記録する。
+
+### Exportワークスペースの読取境界
+
+ExportはSummaryと同じread-only projectionを入力にし、単一Sweepの共有selectionとは別の
+`ExportSelection`を持つ。表示や図styleの変更を解析処理の呼び出し元にしない。
+
+```text
+SummarySnapshot
+  └─ build_export_candidates()               application query（副作用なし）
+       └─ ExportCandidateSnapshot
+            ├─ current revision・valid/reviewを初期選択
+            └─ stale/error/excludedを警告付きで保持
+                 └─ ExportWorkspace          renderer未構築
+
+ExportSelection + FigureSpec + Provenance
+  └─ ExportManifest（canonical JSON / deterministic ID）
+       └─ Level 8 dedicated renderer
+            └─ SVG / PDF / PNG / source CSV / manifest
+```
+
+- `ExportSelection`はfolder、shot、位置、Sweep、方式、Raw/Filtered、除外採用を明示する。
+- `FigureSpec`は図種、panel、軸、単位、legend、error bar、論文presetを保持する。
+- `ExportManifest`はRevision、解析設定、version、採用点、除外理由を保存する。
+- session保存とfigure bundle出力は別の責務にする。
+- 現段階では重いrendererを作らず、workspace shellと契約だけを実装する。
+
+詳細は
+[Export論文図ビルダー仕様](usability/export-figure-builder-spec-2026-07-27.md)
+に記録する。
+
+### 4ワークスペースの回帰Gate
+
+- 100回の最上位タブ切替でworker、前処理、fitの開始を0回にする。
+- 共有Sweepの正規ソースを`AppState.selected_sweep_id`に限定する。
+- folder、role、split、preprocessing、fitの変更ごとに下流だけをstaleにする。
+- generation / Revisionが一致しない遅延結果を状態へ反映しない。
+- Summary/Exportでstale、error、excludedを黙って落とさず、既定対象からだけ外す。
+- 未使用時は解析配列とExport rendererを構築しない。
+
+状態表、性能Gate、macOS手動手順は
+[4ワークスペース状態同期・無再計算テスト](testing/workspace-regression.md)
+に記録する。

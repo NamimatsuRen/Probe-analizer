@@ -4,6 +4,12 @@ from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
+from probe_app.application.state.analysis_result_store import AnalysisResultStore
+from probe_app.domain.models.analysis_result import (
+    AnalysisInputRevision,
+    AnalysisStage,
+    SweepAnalysisRecord,
+)
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.series_role import SeriesRoleAssignments
 from probe_app.domain.models.sweep import Sweep, SweepExclusion
@@ -41,6 +47,7 @@ class AppState:
     sweep_exclusions: tuple[SweepExclusion, ...] = ()
     selected_sweep_id: str | None = None
     sweep_interpolated_current: bool | None = None
+    analysis_results: AnalysisResultStore = field(default_factory=AnalysisResultStore)
     sweep_message: str = "解析系列の役割を選択してください"
     sweep_error: str = ""
     message: str = "フォルダを選択してください"
@@ -59,6 +66,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "入力フォルダが変更されました"
+            ),
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
             message=f"{folder.name} を読み込んでいます…",
@@ -79,6 +89,9 @@ class AppState:
                 sweep_exclusions=(),
                 selected_sweep_id=None,
                 sweep_interpolated_current=None,
+                analysis_results=self.analysis_results.mark_all_stale(
+                    "読み込んだcatalogが変更されました"
+                ),
                 sweep_message="解析系列の役割を選択してください",
                 sweep_error="",
                 message="対応する測定データが見つかりませんでした",
@@ -101,6 +114,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "読み込んだcatalogが変更されました"
+            ),
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
             message=message,
@@ -121,6 +137,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "表示系列が変更されました"
+            ),
             sweep_message=(
                 "Sweep分割を実行できます"
                 if self.role_assignments.is_complete
@@ -161,6 +180,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "解析系列の役割または変換設定が変更されました"
+            ),
             sweep_message=(
                 "Sweep分割を実行できます"
                 if assignments.is_complete
@@ -179,6 +201,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "Sweep分割条件を再実行しています"
+            ),
             sweep_message="2系列を読み込み、Sweepへ分割しています…",
             sweep_error="",
         )
@@ -214,6 +239,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "Sweep分割に失敗しました"
+            ),
             sweep_message=message,
             sweep_error=details,
         )
@@ -226,6 +254,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "Sweep分割をキャンセルしました"
+            ),
             sweep_message=(
                 "Sweep分割をキャンセルしました。再実行できます"
                 if self.role_assignments.is_complete
@@ -247,6 +278,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "フォルダ読込に失敗しました"
+            ),
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
             message=message,
@@ -265,6 +299,9 @@ class AppState:
             sweep_exclusions=(),
             selected_sweep_id=None,
             sweep_interpolated_current=None,
+            analysis_results=self.analysis_results.mark_all_stale(
+                "読込をキャンセルしました"
+            ),
             sweep_message="解析系列の役割を選択してください",
             sweep_error="",
             message="読み込みをキャンセルしました",
@@ -287,3 +324,42 @@ class AppState:
         if not any(sweep.sweep_id == sweep_id for sweep in self.sweeps):
             raise ValueError(f"unknown sweep_id: {sweep_id}")
         return replace(self, selected_sweep_id=sweep_id)
+
+    def record_analysis(self, record: SweepAnalysisRecord) -> AppState:
+        if record.revision.sweep_id not in {
+            sweep.sweep_id for sweep in self.sweeps
+        }:
+            raise ValueError(
+                f"analysis record is outside current Sweeps: {record.revision.sweep_id}"
+            )
+        return replace(
+            self,
+            analysis_results=self.analysis_results.put(record),
+        )
+
+    def record_analysis_if_current(
+        self,
+        record: SweepAnalysisRecord,
+        current_revision: AnalysisInputRevision,
+    ) -> tuple[AppState, bool]:
+        store, accepted = self.analysis_results.put_if_current(
+            record,
+            current_revision,
+        )
+        return replace(self, analysis_results=store), accepted
+
+    def invalidate_analysis(
+        self,
+        sweep_id: str,
+        *,
+        from_stage: AnalysisStage,
+        reason: str,
+    ) -> AppState:
+        return replace(
+            self,
+            analysis_results=self.analysis_results.mark_sweep_stale(
+                sweep_id,
+                from_stage=from_stage,
+                reason=reason,
+            ),
+        )
