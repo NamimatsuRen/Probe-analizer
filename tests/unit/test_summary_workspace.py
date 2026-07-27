@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 from PySide6.QtCore import Qt
 
 from probe_app.domain.models import (
@@ -34,6 +38,9 @@ def test_summary_workspace_shows_scope_denominator_and_all_status_counts(
     assert "有効" in workspace.status_text(AnalysisStatus.VALID)
     assert workspace.status_text(AnalysisStatus.VALID).endswith("1")
     assert workspace.status_text(AnalysisStatus.STALE).endswith("1")
+    assert workspace.average_row_count == 4
+    assert workspace.ti_plot_point_count == 1
+    assert workspace.phi_plot_point_count == 1
     assert "表示だけでは解析を再計算しません" in workspace.policy_text
 
 
@@ -103,4 +110,3 @@ def _snapshot() -> SummarySnapshot:
             ),
         ),
     )
-

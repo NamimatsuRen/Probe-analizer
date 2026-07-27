@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSplitter,
+    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -22,10 +23,12 @@ from probe_app.domain.models.analysis_result import AnalysisStatus
 from probe_app.domain.models.summary import (
     SUMMARY_METHOD_ORDER,
     SummaryMethod,
+    SummaryMetric,
     SummaryRow,
     SummarySnapshot,
 )
 from probe_app.domain.models.sweep import SweepDirection
+from probe_app.ui.widgets.summary_trend_plot import SummaryTrendPlot
 
 SUMMARY_SWEEP_ID_ROLE = int(Qt.ItemDataRole.UserRole)
 
@@ -65,7 +68,7 @@ class SummaryWorkspace(QWidget):
         self._scope.addItem("現在のshot")
         self._scope.setEnabled(False)
         self._scope.setToolTip(
-            "複数shot・位置集計は解析値が揃うLevel 7で段階的に追加します"
+            "複数shot・位置集計は位置metadata契約の確定後に追加します"
         )
 
         self._context = QLabel("集計範囲: shot未選択")
@@ -107,6 +110,60 @@ class SummaryWorkspace(QWidget):
             label.setMinimumWidth(72)
             self._status_labels[status] = label
             status_layout.addWidget(label)
+
+        self._ti_plot = SummaryTrendPlot(SummaryMetric.TI)
+        self._ti_plot.setObjectName("summaryTiTrendPlot")
+        self._phi_plot = SummaryTrendPlot(SummaryMetric.PHI)
+        self._phi_plot.setObjectName("summaryPhiTrendPlot")
+        self._ti_plot.sweep_selected.connect(self._plot_sweep_selected)
+        self._phi_plot.sweep_selected.connect(self._plot_sweep_selected)
+
+        trend_plots = QSplitter(Qt.Orientation.Horizontal)
+        trend_plots.setObjectName("summaryTrendPlots")
+        trend_plots.setChildrenCollapsible(False)
+        trend_plots.addWidget(self._ti_plot)
+        trend_plots.addWidget(self._phi_plot)
+        trend_plots.setStretchFactor(0, 1)
+        trend_plots.setStretchFactor(1, 1)
+        trend_plots.setSizes([580, 580])
+
+        self._averages = QTreeWidget()
+        self._averages.setObjectName("summaryAverageTable")
+        self._averages.setHeaderLabels(
+            [
+                "方式",
+                "T_i 平均 [eV]",
+                "T_i SD [eV]",
+                "T_i 採用数",
+                "Phi 平均 [V]",
+                "Phi SD [V]",
+                "Phi 採用数",
+            ]
+        )
+        self._averages.setAlternatingRowColors(True)
+        self._averages.setUniformRowHeights(True)
+        self._averages.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self._averages.setMaximumHeight(165)
+        average_header = self._averages.header()
+        average_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in range(1, self._averages.columnCount()):
+            average_header.setSectionResizeMode(
+                column,
+                QHeaderView.ResizeMode.ResizeToContents,
+            )
+
+        average_group = QGroupBox(
+            "方式別平均（current revision・有効/要確認、T_iは0–5 eV）"
+        )
+        average_group.setObjectName("summaryAverages")
+        average_layout = QVBoxLayout(average_group)
+        average_layout.addWidget(self._averages)
+
+        trend_page = QWidget()
+        trend_page_layout = QVBoxLayout(trend_page)
+        trend_page_layout.setContentsMargins(6, 6, 6, 6)
+        trend_page_layout.addWidget(trend_plots, 1)
+        trend_page_layout.addWidget(average_group)
 
         self._tree = QTreeWidget()
         self._tree.setObjectName("summarySweepTable")
@@ -181,10 +238,15 @@ class SummaryWorkspace(QWidget):
         body.setStretchFactor(1, 2)
         body.setSizes([700, 430])
 
+        self._views = QTabWidget()
+        self._views.setObjectName("summaryViews")
+        self._views.addTab(trend_page, "推移・平均")
+        self._views.addTab(body, "Sweep一覧・詳細")
+
         self._policy = QLabel(
             "表示だけでは解析を再計算しません。既定集計には現在のRevisionと一致し、"
-            "有効または要確認の結果だけを使います。未実行・失敗・古い結果・除外も一覧から"
-            "消さず、分母と理由を表示します。"
+            "有効または要確認の結果だけを使います。T_i平均は0 < T_i < 5 eVに限定します。"
+            "未実行・失敗・古い結果・除外も一覧から消さず、分母と理由を表示します。"
         )
         self._policy.setObjectName("summaryPolicy")
         self._policy.setWordWrap(True)
@@ -198,7 +260,7 @@ class SummaryWorkspace(QWidget):
         layout.setSpacing(0)
         layout.addWidget(header)
         layout.addWidget(status_bar)
-        layout.addWidget(body, 1)
+        layout.addWidget(self._views, 1)
         layout.addWidget(self._policy)
 
         self.render_snapshot(None)
@@ -227,6 +289,18 @@ class SummaryWorkspace(QWidget):
     def policy_text(self) -> str:
         return self._policy.text()
 
+    @property
+    def average_row_count(self) -> int:
+        return self._averages.topLevelItemCount()
+
+    @property
+    def ti_plot_point_count(self) -> int:
+        return self._ti_plot.plotted_point_count
+
+    @property
+    def phi_plot_point_count(self) -> int:
+        return self._phi_plot.plotted_point_count
+
     def status_text(self, status: AnalysisStatus) -> str:
         return self._status_labels[status].text()
 
@@ -246,6 +320,7 @@ class SummaryWorkspace(QWidget):
                 self._context.setText(f"集計範囲: shot未選択 ｜ {empty_message}")
                 self._denominator.setText("既定集計: 0 / 0 Sweep")
                 self._render_status_counts(())
+                self._render_trends(None)
                 self._render_detail(None)
                 return
 
@@ -266,6 +341,10 @@ class SummaryWorkspace(QWidget):
                 "（current revision・有効/要確認）"
             )
             self._render_status_counts(snapshot.status_counts)
+            self._render_trends(
+                snapshot,
+                selected_sweep_id=selected_sweep_id,
+            )
             for row in snapshot.rows:
                 self._rows[row.sweep_id] = row
                 item = self._row_item(row)
@@ -288,6 +367,7 @@ class SummaryWorkspace(QWidget):
             self._tree.blockSignals(False)
         if selected:
             self._render_detail(self._rows[sweep_id])
+            self._select_trend_sweep(sweep_id)
         return selected
 
     def _select_item(self, sweep_id: str) -> bool:
@@ -342,8 +422,59 @@ class SummaryWorkspace(QWidget):
         sweep_id = self.selected_sweep_id
         row = self._rows.get(sweep_id) if sweep_id is not None else None
         self._render_detail(row)
+        self._select_trend_sweep(sweep_id)
         if sweep_id is not None:
             self.sweep_selected.emit(sweep_id)
+
+    def _plot_sweep_selected(self, sweep_id: str) -> None:
+        if self.select_sweep(sweep_id):
+            self.sweep_selected.emit(sweep_id)
+
+    def _select_trend_sweep(self, sweep_id: str | None) -> None:
+        self._ti_plot.select_sweep(sweep_id)
+        self._phi_plot.select_sweep(sweep_id)
+
+    def _render_trends(
+        self,
+        snapshot: SummarySnapshot | None,
+        *,
+        selected_sweep_id: str | None = None,
+    ) -> None:
+        self._averages.clear()
+        self._ti_plot.render_snapshot(
+            snapshot,
+            selected_sweep_id=selected_sweep_id,
+        )
+        self._phi_plot.render_snapshot(
+            snapshot,
+            selected_sweep_id=selected_sweep_id,
+        )
+        if snapshot is None:
+            return
+        ti_stats = {
+            statistic.method: statistic
+            for statistic in snapshot.metric_statistics(SummaryMetric.TI)
+        }
+        phi_stats = {
+            statistic.method: statistic
+            for statistic in snapshot.metric_statistics(SummaryMetric.PHI)
+        }
+        for method in SUMMARY_METHOD_ORDER:
+            ti = ti_stats[method]
+            phi = phi_stats[method]
+            self._averages.addTopLevelItem(
+                QTreeWidgetItem(
+                    [
+                        _METHOD_LABELS[method],
+                        _format_optional(ti.mean),
+                        _format_optional(ti.sample_std),
+                        f"{ti.count} / {ti.scope_count}",
+                        _format_optional(phi.mean),
+                        _format_optional(phi.sample_std),
+                        f"{phi.count} / {phi.scope_count}",
+                    ]
+                )
+            )
 
     def _render_detail(self, row: SummaryRow | None) -> None:
         self._methods.clear()

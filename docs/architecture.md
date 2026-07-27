@@ -271,24 +271,30 @@ PreprocessedSweep + AnalysisSettings
 AppState.sweeps + AnalysisResultStore + current AnalysisInputRevision
   └─ build_summary_snapshot()                 application query（副作用なし）
        └─ SummarySnapshot
-            ├─ scope / 集計分母
+            ├─ scope / 集計分母 / 方式別統計
             ├─ 全Sweepの状態行
-            └─ 4方式のPhi・T_i・K
+            └─ 4方式のPhi・T_i・K・plot点
                  └─ SummaryWorkspace
                       ├─ 状態件数
+                      ├─ T_i / Phi推移・平均
                       ├─ Sweep一覧
                       └─ 解析へのdrill-down
 ```
 
 - `SummaryScope`はData/Analysisの単一Sweep選択と別の型で保持する。
-- 現段階のscopeは読み込んだ現在shot。複数shotと位置はLevel 7で段階的に追加する。
+- 現段階のscopeは読み込んだ現在shot。複数shotと位置は位置metadata契約の確定後に追加する。
 - 全Sweepを1行ずつprojectionし、未実行・失敗・stale・除外を暗黙に落とさない。
 - 前処理だけ完了し`T_i`工程が未実行のrecordは、サマリーでは「未実行」とする。
 - 既定集計はcurrent revisionと一致する`valid` / `review`だけを分母候補にする。
+- `T_i`の既定採用範囲は`0 < T_i < 5 eV`、`Phi`は有限値。方式別状態も
+  `valid` / `review`である値だけを統計へ使う。
+- 対象外だが有限な値は灰色の点として残し、値の存在と不採用を区別する。
 - 別Revisionしか存在しないSweepは「再計算必要」として表示し、既定集計には入れない。
 - 4方式の安定IDをdomainで定義し、未実装の方式も空欄ではなく「未実行」と表示する。
 - 行選択は共有`selected_sweep_id`へ反映し、「解析で確認」で解析タブへ移動する。
 - タブ表示・行選択・drill-downはreader、前処理、fitを実行しない。
+- current-shotの一括解析は解析ワークスペースの明示ボタンから`AnalysisBatchTask`を起動する。
+  完了済みrecordを`AnalysisResultStore`へ順次追加し、Summaryはread-only projectionを再表示する。
 
 詳細は
 [サマリーワークスペース状態・集計契約](usability/summary-workspace-contract-2026-07-27.md)

@@ -26,6 +26,8 @@ class FitAnalysisPanel(QWidget):
     """Explicit Level 4–6 settings, candidate selection, and diagnostics."""
 
     run_requested = Signal(object)
+    run_all_requested = Signal(object)
+    cancel_all_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -101,6 +103,20 @@ class FitAnalysisPanel(QWidget):
         self._run_button.setEnabled(False)
         self._run_button.clicked.connect(self._emit_request)
 
+        self._run_all_button = QPushButton("現在のshotを一括解析")
+        self._run_all_button.setObjectName("runCurrentShotAnalysis")
+        self._run_all_button.setEnabled(False)
+        self._run_all_button.setToolTip(
+            "現在のFit範囲とSG設定を全Sweepへ適用します。"
+            "V_f/Phi候補はSweepごとに自動選択します。"
+        )
+        self._run_all_button.clicked.connect(self._emit_all_request)
+
+        self._cancel_all_button = QPushButton("一括解析をキャンセル")
+        self._cancel_all_button.setObjectName("cancelCurrentShotAnalysis")
+        self._cancel_all_button.setEnabled(False)
+        self._cancel_all_button.clicked.connect(self.cancel_all_requested.emit)
+
         self._status = QLabel("Sweepを選択して明示的に解析を実行してください")
         self._status.setObjectName("level4To6AnalysisStatus")
         self._status.setWordWrap(True)
@@ -126,6 +142,8 @@ class FitAnalysisPanel(QWidget):
         layout.addWidget(saturation_group)
         layout.addWidget(temperature_group)
         layout.addWidget(self._run_button)
+        layout.addWidget(self._run_all_button)
+        layout.addWidget(self._cancel_all_button)
         layout.addWidget(result_group)
 
     @property
@@ -170,6 +188,7 @@ class FitAnalysisPanel(QWidget):
         self._result = None
         self._reset_candidates()
         self._run_button.setEnabled(True)
+        self._run_all_button.setEnabled(True)
         self._status.setStyleSheet("color: #556070;")
         self._status.setText(
             f"{sweep_id}\n設定を確認して解析ボタンを押してください。"
@@ -182,6 +201,8 @@ class FitAnalysisPanel(QWidget):
         self._result = None
         self._reset_candidates()
         self._run_button.setEnabled(False)
+        self._run_all_button.setEnabled(False)
+        self._cancel_all_button.setEnabled(False)
         self._status.setStyleSheet("color: #556070;")
         self._status.setText(message)
         self._clear_objective()
@@ -191,6 +212,7 @@ class FitAnalysisPanel(QWidget):
 
         self._result = None
         self._run_button.setEnabled(self._selected_sweep_id is not None)
+        self._run_all_button.setEnabled(self._selected_sweep_id is not None)
         self._status.setStyleSheet("color: #b54708;")
         self._status.setText(message)
         self._clear_objective()
@@ -199,6 +221,7 @@ class FitAnalysisPanel(QWidget):
         self._selected_sweep_id = result.preprocessed.sweep_id
         self._result = result
         self._run_button.setEnabled(True)
+        self._run_all_button.setEnabled(True)
         self._populate_candidates(result)
         color = {
             "valid": "#067647",
@@ -236,6 +259,7 @@ class FitAnalysisPanel(QWidget):
         self._selected_sweep_id = sweep_id
         self._result = None
         self._run_button.setEnabled(True)
+        self._run_all_button.setEnabled(True)
         self._status.setStyleSheet("color: #b42318;")
         self._status.setText(
             f"{sweep_id}\n解析できません: {message}\n"
@@ -354,3 +378,48 @@ class FitAnalysisPanel(QWidget):
             self.show_error(self._selected_sweep_id, str(error))
             return
         self.run_requested.emit(settings)
+
+    def _emit_all_request(self) -> None:
+        try:
+            settings = self.settings()
+        except ValueError as error:
+            if self._selected_sweep_id is not None:
+                self.show_error(self._selected_sweep_id, str(error))
+            return
+        self.run_all_requested.emit(settings)
+
+    def show_batch_progress(
+        self,
+        completed: int,
+        total: int,
+        sweep_id: str = "",
+    ) -> None:
+        self._run_button.setEnabled(False)
+        self._run_all_button.setEnabled(False)
+        self._cancel_all_button.setEnabled(True)
+        suffix = f"\n処理中: {sweep_id}" if sweep_id else ""
+        self._status.setStyleSheet("color: #175cd3;")
+        self._status.setText(
+            f"現在のshotを一括解析中: {completed:,} / {total:,} Sweep"
+            f"{suffix}\nタブ切替だけでは解析は増えません。"
+        )
+
+    def show_batch_finished(self, completed: int, total: int) -> None:
+        self._run_button.setEnabled(self._selected_sweep_id is not None)
+        self._run_all_button.setEnabled(self._selected_sweep_id is not None)
+        self._cancel_all_button.setEnabled(False)
+        self._status.setStyleSheet("color: #067647;")
+        self._status.setText(
+            f"現在のshotの一括解析が完了しました: {completed:,} / {total:,} Sweep\n"
+            "サマリータブでT_i・Phiの推移と平均を確認できます。"
+        )
+
+    def show_batch_cancelled(self, completed: int, total: int) -> None:
+        self._run_button.setEnabled(self._selected_sweep_id is not None)
+        self._run_all_button.setEnabled(self._selected_sweep_id is not None)
+        self._cancel_all_button.setEnabled(False)
+        self._status.setStyleSheet("color: #b54708;")
+        self._status.setText(
+            f"一括解析をキャンセルしました: {completed:,} / {total:,} Sweep完了\n"
+            "完了済みの結果はサマリーに残ります。"
+        )

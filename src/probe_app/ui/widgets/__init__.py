@@ -7,6 +7,7 @@ from probe_app.ui.widgets.preprocessing_panel import PreprocessingPanel
 from probe_app.ui.widgets.raw_plot import RawPlot
 from probe_app.ui.widgets.role_assignment_panel import RoleAssignmentPanel
 from probe_app.ui.widgets.status_panel import StatusPanel
+from probe_app.ui.widgets.summary_trend_plot import SummaryTrendPlot
 from probe_app.ui.widgets.summary_workspace import SummaryWorkspace
 from probe_app.ui.widgets.sweep_browser import SweepBrowser
 from probe_app.ui.widgets.sweep_iv_plot import SweepIVPlot
@@ -23,6 +24,7 @@ __all__ = [
     "RoleAssignmentPanel",
     "StatusPanel",
     "SummaryWorkspace",
+    "SummaryTrendPlot",
     "SweepBrowser",
     "SweepIVPlot",
     "SweepSplitPanel",

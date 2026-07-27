@@ -129,7 +129,7 @@ def _summary_status(
 def _method_values(
     record: SweepAnalysisRecord,
 ) -> tuple[SummaryMethodValue, ...]:
-    outcomes: dict[SummaryMethod, list[MethodOutcome]] = {
+    outcomes: dict[SummaryMethod, list[tuple[AnalysisStage, MethodOutcome]]] = {
         method: [] for method in SUMMARY_METHOD_ORDER
     }
     for stage in record.stages:
@@ -138,7 +138,7 @@ def _method_values(
                 method = SummaryMethod(outcome.method_id)
             except ValueError:
                 continue
-            outcomes[method].append(outcome)
+            outcomes[method].append((stage.stage, outcome))
 
     fit_settings = dict(record.revision.fit_settings)
     return tuple(
@@ -153,7 +153,7 @@ def _method_values(
 
 def _merge_method_values(
     method: SummaryMethod,
-    outcomes: list[MethodOutcome],
+    outcomes: list[tuple[AnalysisStage, MethodOutcome]],
     *,
     k_source: str,
 ) -> SummaryMethodValue:
@@ -164,12 +164,30 @@ def _merge_method_values(
             k_source=k_source,
         )
     metrics: dict[str, float] = {}
-    for outcome in outcomes:
+    for _, outcome in outcomes:
         metrics.update(outcome.metrics)
-    final = outcomes[-1]
+    final = outcomes[-1][1]
+    potential = next(
+        (
+            outcome
+            for stage, outcome in reversed(outcomes)
+            if stage is AnalysisStage.POTENTIAL
+        ),
+        None,
+    )
+    temperature = next(
+        (
+            outcome
+            for stage, outcome in reversed(outcomes)
+            if stage is AnalysisStage.TEMPERATURE
+        ),
+        None,
+    )
     return SummaryMethodValue(
         method=method,
         status=final.status,
+        phi_status=potential.status if potential is not None else None,
+        ti_status=temperature.status if temperature is not None else None,
         phi_v=metrics.get("phi_v"),
         ti_ev=metrics.get("ti_ev"),
         k_per_v=metrics.get("k_per_v"),
