@@ -44,9 +44,9 @@ from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignment
 from probe_app.domain.models.sweep import Sweep
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
+    AnalysisWorkspace,
     DataBrowser,
     MetadataPanel,
-    PreprocessingPanel,
     RawPlot,
     RoleAssignmentPanel,
     StatusPanel,
@@ -94,8 +94,9 @@ class MainWindow(QMainWindow):
         self._sweep_panel = SweepSplitPanel()
         self._sweep_browser = SweepBrowser()
         self._sweep_iv_plot = SweepIVPlot(analysis_enabled=False)
-        self._analysis_sweep_iv_plot = SweepIVPlot()
-        self._preprocessing_panel = PreprocessingPanel()
+        self._analysis_workspace = AnalysisWorkspace()
+        self._analysis_sweep_iv_plot = self._analysis_workspace.plot
+        self._preprocessing_panel = self._analysis_workspace.preprocessing_panel
         self._details_tabs = QTabWidget()
         self._workspace_tabs = QTabWidget()
         self._status = StatusPanel()
@@ -145,16 +146,6 @@ class MainWindow(QMainWindow):
         self._data_workspace.setStretchFactor(0, 5)
         self._data_workspace.setStretchFactor(1, 2)
         self._data_workspace.setSizes([520, 240])
-
-        self._analysis_workspace = QSplitter(Qt.Orientation.Vertical)
-        self._analysis_workspace.setObjectName("analysisWorkspace")
-        self._analysis_sweep_iv_plot.setObjectName("analysisIVPlot")
-        self._preprocessing_panel.setObjectName("analysisPreprocessingControls")
-        self._analysis_workspace.addWidget(self._analysis_sweep_iv_plot)
-        self._analysis_workspace.addWidget(self._preprocessing_panel)
-        self._analysis_workspace.setStretchFactor(0, 5)
-        self._analysis_workspace.setStretchFactor(1, 2)
-        self._analysis_workspace.setSizes([520, 240])
 
         self._workspace_tabs.setObjectName("primaryWorkspaceTabs")
         self._workspace_tabs.addTab(self._data_workspace, "データ確認")
@@ -535,6 +526,7 @@ class MainWindow(QMainWindow):
             self._sweep_iv_plot.show_sweep(selected_sweep)
             self._analysis_sweep_iv_plot.show_sweep(selected_sweep)
             self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
+            self._render_analysis_workspace()
             self._render_actions()
 
     def _current_time_offset_preview_changed(self, offset_s: float) -> None:
@@ -574,6 +566,7 @@ class MainWindow(QMainWindow):
 
         record = SweepAnalysisRecord.running(revision)
         self._state = self._state.record_analysis(record)
+        self._render_analysis_workspace()
         try:
             result = preprocess_sweep(sweep, settings)
         except (PreprocessingError, ValueError) as error:
@@ -596,6 +589,7 @@ class MainWindow(QMainWindow):
                 "dI/dV — 設定を確認してください"
             )
             self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
+            self._render_analysis_workspace()
             return
 
         status = (
@@ -628,6 +622,7 @@ class MainWindow(QMainWindow):
         self._state, _ = self._state.record_analysis_if_current(record, revision)
         self._analysis_sweep_iv_plot.show_preprocessing(result)
         self._preprocessing_panel.show_result(result)
+        self._render_analysis_workspace()
 
     def _build_analysis_revision(
         self,
@@ -806,7 +801,21 @@ class MainWindow(QMainWindow):
             self._sweep_iv_plot.clear_plot(self._state.sweep_message)
             self._analysis_sweep_iv_plot.clear_plot(self._state.sweep_message)
             self._preprocessing_panel.clear(self._state.sweep_message)
+        self._render_analysis_workspace()
         self._render_actions()
+
+    def _render_analysis_workspace(self) -> None:
+        selected_sweep = self._state.selected_sweep
+        record = (
+            self._state.analysis_results.latest_for_sweep(selected_sweep.sweep_id)
+            if selected_sweep is not None
+            else None
+        )
+        self._analysis_workspace.render_state(
+            selected_sweep,
+            record,
+            empty_message=self._state.sweep_message,
+        )
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()

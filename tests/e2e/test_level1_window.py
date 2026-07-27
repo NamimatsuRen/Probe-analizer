@@ -14,7 +14,7 @@ from probe_app.analysis import SavitzkyGolaySettings
 from probe_app.application.state import LoadStatus, SweepRunStatus
 from probe_app.application.use_cases import SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
-from probe_app.domain.models.analysis_result import AnalysisStatus
+from probe_app.domain.models.analysis_result import AnalysisStage, AnalysisStatus
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
 from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from probe_app.ui.main_window import MainWindow
@@ -40,6 +40,14 @@ def test_level1_window_starts(qtbot: object) -> None:
     assert window._details_tabs.count() == 3  # noqa: SLF001
     assert window._sweep_iv_plot.analysis_enabled is False  # noqa: SLF001
     assert window._analysis_sweep_iv_plot.analysis_enabled is True  # noqa: SLF001
+    assert "Sweep未選択" in window._analysis_workspace.context_text  # noqa: SLF001
+    assert "未作成" in window._analysis_workspace.revision_text  # noqa: SLF001
+    assert "未実行" in window._analysis_workspace.stage_text(  # noqa: SLF001
+        AnalysisStage.PREPROCESSING
+    )
+    assert "未実装" in window._analysis_workspace.stage_text(  # noqa: SLF001
+        AnalysisStage.POTENTIAL
+    )
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
     assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001
@@ -63,6 +71,7 @@ def test_level1_window_starts(qtbot: object) -> None:
     for index in range(window._workspace_tabs.count()):  # noqa: SLF001
         window._workspace_tabs.setCurrentIndex(index)  # noqa: SLF001
     assert window._preprocessing_panel.result is preprocessing_before  # noqa: SLF001
+    assert "Sweep未選択" in window._analysis_workspace.context_text  # noqa: SLF001
 
 
 def test_level1_window_loads_folder_and_first_series(qtbot: object, tmp_path: Path) -> None:
@@ -285,6 +294,14 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._preprocessing_panel.result is None  # noqa: SLF001
     assert window._sweep_iv_plot.preprocessed is None  # noqa: SLF001
     assert window._analysis_sweep_iv_plot.preprocessed is None  # noqa: SLF001
+    assert (
+        window._state.sweeps[0].sweep_id  # noqa: SLF001
+        in window._analysis_workspace.context_text  # noqa: SLF001
+    )
+    assert "前処理は未実行" in window._analysis_workspace.revision_text  # noqa: SLF001
+    assert "未実行" in window._analysis_workspace.stage_text(  # noqa: SLF001
+        AnalysisStage.PREPROCESSING
+    )
     window._preprocessing_panel._run_button.click()  # noqa: SLF001
     assert window._preprocessing_panel.result is not None  # noqa: SLF001
     assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
@@ -294,6 +311,15 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert first_record is not None
     assert first_record.status in (AnalysisStatus.VALID, AnalysisStatus.REVIEW)
     assert first_record.revision.preprocessing.polyorder == 2
+    assert (
+        first_record.revision.cache_key[:10]
+        in window._analysis_workspace.revision_text  # noqa: SLF001
+    )
+    assert (
+        "完了" in window._analysis_workspace.stage_text(AnalysisStage.PREPROCESSING)  # noqa: SLF001
+        or "要確認"
+        in window._analysis_workspace.stage_text(AnalysisStage.PREPROCESSING)  # noqa: SLF001
+    )
     original_sweeps = window._state.sweeps  # noqa: SLF001
     original_sweep_generation = window._sweep_generation  # noqa: SLF001
     original_iv_sweep = window._sweep_iv_plot.selected_sweep  # noqa: SLF001
