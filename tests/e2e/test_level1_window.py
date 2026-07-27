@@ -14,6 +14,7 @@ from probe_app.analysis import SavitzkyGolaySettings
 from probe_app.application.state import LoadStatus, SweepRunStatus
 from probe_app.application.use_cases import SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
+from probe_app.domain.models.analysis_result import AnalysisStatus
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
 from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from probe_app.ui.main_window import MainWindow
@@ -287,6 +288,12 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     window._preprocessing_panel._run_button.click()  # noqa: SLF001
     assert window._preprocessing_panel.result is not None  # noqa: SLF001
     assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
+    first_record = window._state.analysis_results.latest_for_sweep(  # noqa: SLF001
+        window._state.sweeps[0].sweep_id  # noqa: SLF001
+    )
+    assert first_record is not None
+    assert first_record.status in (AnalysisStatus.VALID, AnalysisStatus.REVIEW)
+    assert first_record.revision.preprocessing.polyorder == 2
     original_sweeps = window._state.sweeps  # noqa: SLF001
     original_sweep_generation = window._sweep_generation  # noqa: SLF001
     original_iv_sweep = window._sweep_iv_plot.selected_sweep  # noqa: SLF001
@@ -325,6 +332,12 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_task is None  # noqa: SLF001
     assert window._preprocessing_panel.result is not None  # noqa: SLF001
     assert window._preprocessing_panel.result.polyorder == 1  # noqa: SLF001
+    revised_record = window._state.analysis_results.latest_for_sweep(  # noqa: SLF001
+        window._state.sweeps[0].sweep_id  # noqa: SLF001
+    )
+    assert revised_record is not None
+    assert revised_record.revision.preprocessing.polyorder == 1
+    assert revised_record.revision.cache_key != first_record.revision.cache_key
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
     assert (  # noqa: SLF001

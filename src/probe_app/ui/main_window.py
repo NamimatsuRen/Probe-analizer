@@ -27,6 +27,17 @@ from probe_app.application.ports import RoleAssignmentStore
 from probe_app.application.state import AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
+from probe_app.domain.models.analysis_result import (
+    AnalysisInputRevision,
+    AnalysisStage,
+    AnalysisStatus,
+    MethodOutcome,
+    PreprocessingRevision,
+    SignalAssignmentRevision,
+    StageResult,
+    SweepAnalysisRecord,
+    SweepSplitRevision,
+)
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
@@ -555,16 +566,111 @@ class MainWindow(QMainWindow):
         settings: SavitzkyGolaySettings,
     ) -> None:
         try:
+            revision = self._build_analysis_revision(sweep, settings)
+        except ValueError as error:
+            LOGGER.info("Analysis revision could not be built: %s", error)
+            self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
+            return
+
+        record = SweepAnalysisRecord.running(revision)
+        self._state = self._state.record_analysis(record)
+        try:
             result = preprocess_sweep(sweep, settings)
         except (PreprocessingError, ValueError) as error:
             LOGGER.info("Sweep preprocessing failed for %s: %s", sweep.sweep_id, error)
+            failure = MethodOutcome(
+                method_id="savitzky_golay",
+                status=AnalysisStatus.ERROR,
+                message=str(error),
+            )
+            record = record.with_stage_result(
+                StageResult(
+                    stage=AnalysisStage.PREPROCESSING,
+                    status=AnalysisStatus.ERROR,
+                    methods=(failure,),
+                    message=str(error),
+                )
+            )
+            self._state, _ = self._state.record_analysis_if_current(record, revision)
             self._analysis_sweep_iv_plot.clear_preprocessing(
                 "dI/dV — 設定を確認してください"
             )
             self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
             return
+
+        status = (
+            AnalysisStatus.REVIEW
+            if result.spacing_warning
+            else AnalysisStatus.VALID
+        )
+        outcome = MethodOutcome(
+            method_id="savitzky_golay",
+            status=status,
+            message=result.spacing_warning,
+            metrics=(
+                (
+                    "max_spacing_deviation_fraction",
+                    result.max_spacing_deviation_fraction,
+                ),
+                ("polyorder", float(result.polyorder)),
+                ("used_window_length", float(result.used_window_length)),
+                ("voltage_step_v", result.voltage_step_v),
+            ),
+        )
+        record = record.with_stage_result(
+            StageResult(
+                stage=AnalysisStage.PREPROCESSING,
+                status=status,
+                methods=(outcome,),
+                message=result.spacing_warning,
+            )
+        )
+        self._state, _ = self._state.record_analysis_if_current(record, revision)
         self._analysis_sweep_iv_plot.show_preprocessing(result)
         self._preprocessing_panel.show_result(result)
+
+    def _build_analysis_revision(
+        self,
+        sweep: Sweep,
+        settings: SavitzkyGolaySettings,
+    ) -> AnalysisInputRevision:
+        folder = self._state.folder
+        shot_id = self._state.role_assignment_shot_id
+        current = self._state.role_assignments.for_role(SeriesRole.CURRENT)
+        voltage = self._state.role_assignments.for_role(SeriesRole.SWEEP_VOLTAGE)
+        if folder is None or shot_id is None or current is None or voltage is None:
+            raise ValueError(
+                "フォルダ・shot・current・sweep voltageの入力条件を確定できません"
+            )
+        split = self._sweep_panel.parameters()
+        return AnalysisInputRevision(
+            folder_key=str(folder.resolve()),
+            shot_id=shot_id,
+            sweep_id=sweep.sweep_id,
+            current=SignalAssignmentRevision(
+                series_id=current.series_id,
+                scale=current.transform.scale,
+                sign=current.transform.sign,
+                output_unit=current.transform.output_unit,
+            ),
+            sweep_voltage=SignalAssignmentRevision(
+                series_id=voltage.series_id,
+                scale=voltage.transform.scale,
+                sign=voltage.transform.sign,
+                output_unit=voltage.transform.output_unit,
+            ),
+            split=SweepSplitRevision(
+                points_per_cycle=split.points_per_cycle,
+                sample_start=split.sample_start,
+                sample_stop=split.sample_stop,
+                current_time_offset_s=sweep.current_time_offset_s,
+            ),
+            preprocessing=PreprocessingRevision(
+                window_length=settings.window_length,
+                polyorder=settings.polyorder,
+            ),
+            generation_id=self._sweep_generation,
+        )
 
     def _series_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._load_generation:

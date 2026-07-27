@@ -7,12 +7,19 @@ import pytest
 
 from probe_app.application.state import AppState, LoadStatus, SweepRunStatus
 from probe_app.domain.models import (
+    AnalysisInputRevision,
+    AnalysisStage,
+    AnalysisStatus,
     AssignedSeries,
     FolderCatalog,
+    PreprocessingRevision,
     SeriesRole,
     SeriesRoleAssignments,
+    SignalAssignmentRevision,
     Sweep,
+    SweepAnalysisRecord,
     SweepDirection,
+    SweepSplitRevision,
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
@@ -175,6 +182,58 @@ def test_folder_shot_series_and_sweep_selection_have_one_reset_chain(
     assert folder_changed.sweeps == ()
 
 
+def test_analysis_records_follow_sweep_and_become_stale_when_inputs_change(
+    tmp_path: Path,
+) -> None:
+    write_panta_series(tmp_path / "shot-a", "current")
+    write_panta_series(tmp_path / "shot-a", "voltage")
+    catalog = FolderScanner().scan(tmp_path)
+    assignments = SeriesRoleAssignments(
+        (
+            AssignedSeries(
+                role=SeriesRole.CURRENT,
+                series_id="shot-a/current",
+                transform=legacy_current_transform(sign=-1.0),
+            ),
+            AssignedSeries(
+                role=SeriesRole.SWEEP_VOLTAGE,
+                series_id="shot-a/voltage",
+                transform=legacy_sweep_voltage_transform(),
+            ),
+        )
+    )
+    sweep = _sweep("first", 0)
+    state = (
+        AppState()
+        .apply_catalog(catalog)
+        .set_role_assignments("shot-a", assignments)
+        .start_sweep_split()
+        .apply_sweep_result((sweep,), interpolated_current=False)
+    )
+    revision = _analysis_revision(tmp_path, sweep.sweep_id)
+    state = state.record_analysis(
+        SweepAnalysisRecord(
+            revision=revision,
+            status=AnalysisStatus.VALID,
+        )
+    )
+
+    assert state.analysis_results.accepted_current(revision) is not None
+    invalidated = state.invalidate_analysis(
+        sweep.sweep_id,
+        from_stage=AnalysisStage.POTENTIAL,
+        reason="Phi候補が変更されました",
+    )
+    assert invalidated.analysis_results.latest_for_sweep(
+        sweep.sweep_id
+    ).status is AnalysisStatus.STALE
+
+    series_changed = state.select_series("shot-a/voltage")
+    assert series_changed.analysis_results.latest_for_sweep(
+        sweep.sweep_id
+    ).status is AnalysisStatus.STALE
+
+
 def _sweep(sweep_id: str, start: int) -> Sweep:
     return Sweep(
         sweep_id=sweep_id,
@@ -186,4 +245,31 @@ def _sweep(sweep_id: str, start: int) -> Sweep:
         time_s=np.arange(start, start + 4, dtype=np.float64) * 0.01,
         voltage_v=np.arange(4, dtype=np.float64),
         current_a=np.arange(4, dtype=np.float64),
+    )
+
+
+def _analysis_revision(folder: Path, sweep_id: str) -> AnalysisInputRevision:
+    return AnalysisInputRevision(
+        folder_key=str(folder),
+        shot_id="shot-a",
+        sweep_id=sweep_id,
+        current=SignalAssignmentRevision(
+            series_id="shot-a/current",
+            scale=0.05,
+            sign=-1.0,
+            output_unit="A",
+        ),
+        sweep_voltage=SignalAssignmentRevision(
+            series_id="shot-a/voltage",
+            scale=100.0,
+            sign=1.0,
+            output_unit="V",
+        ),
+        split=SweepSplitRevision(
+            points_per_cycle=20_000,
+            sample_start=200_000,
+            sample_stop=500_000,
+            current_time_offset_s=0.0,
+        ),
+        preprocessing=PreprocessingRevision(window_length=501, polyorder=3),
     )

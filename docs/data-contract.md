@@ -225,3 +225,41 @@ dI/dV = savgol_filter(I_raw, deriv=1, delta=ΔV)
 
 最大相対偏差が5%を超える場合、計算は継続するが、`dI/dV`が等間隔近似であることを画面へ
 警告する。非有限値、配列長不一致、有効窓なしは結果を返さない。
+
+## 解析入力Revisionと結果状態
+
+解析値には、数値だけでなく「どの入力条件から得たか」を示す
+`AnalysisInputRevision`を必ず関連付ける。Revisionは次を含む。
+
+- folder、shot、SweepのID
+- currentとsweep voltageのseries ID、倍率、符号、出力単位
+- Sweep周期点数、sample範囲、適用済みcurrent時間補正
+- SG窓と多項式次数
+- 後続Levelで追加するfit設定
+- 解析アルゴリズム版、schema版、background処理のgeneration
+
+これらを正規化した内容から安定した`cache_key`を作る。設定変更後に旧background処理が
+完了しても、完了時点のRevisionが現在のRevisionと一致しなければ結果を採用しない。
+
+解析結果は`SweepAnalysisRecord`で管理し、配列そのものは重複保存しない。Recordが保持するのは
+Revision、段階・方式ごとの状態、選択候補、手動変更の有無、品質指標、メッセージである。
+状態は次の意味を持つ。
+
+| 状態 | 意味 | Summary / Export |
+|---|---|---|
+| `not_run` | 未実行 | 対象外 |
+| `running` | 実行中 | 対象外 |
+| `valid` | 採用可能 | 対象 |
+| `review` | 値はあるが確認が必要 | 警告付きで対象 |
+| `bad` | 品質条件を満たさない | 対象外 |
+| `error` | 方式または段階が失敗 | 対象外 |
+| `stale` | 入力変更により旧版になった | 対象外 |
+| `excluded` | 利用者が理由付きで除外した | 対象外 |
+
+一つの方式が失敗しても、同じ段階の別方式が成功していれば成功結果を保持する。
+例えば対数交点が失敗しても、微分ピークによる候補を消さない。段階全体は
+`partial_success`として表示できる。
+
+無効化は依存関係に沿って行う。SG設定変更は前処理以降を、Phi候補変更は電位決定以降を、
+飽和fit範囲変更は飽和・温度・品質を`stale`にする。folder、role、時間補正、Sweep分割条件の
+変更は全段階を`stale`にする。`excluded`は数値品質の`bad`と区別し、理由を残して復元可能にする。
