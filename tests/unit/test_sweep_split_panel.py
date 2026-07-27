@@ -36,6 +36,21 @@ def test_split_panel_defaults_to_the_legacy_analysis_window(qtbot: object) -> No
         sample_start=200_000,
         sample_stop=500_000,
     )
+    assert panel.auto_run_enabled
+
+
+def test_auto_run_setting_is_explicit_and_emits_changes(qtbot: object) -> None:
+    panel = SweepSplitPanel()
+    qtbot.addWidget(panel)  # type: ignore[attr-defined]
+
+    with qtbot.waitSignal(  # type: ignore[attr-defined]
+        panel.auto_run_changed,
+        timeout=1_000,
+    ) as blocker:
+        panel.set_auto_run_enabled(False)
+
+    assert blocker.args == [False]
+    assert not panel.auto_run_enabled
 
 
 def test_offset_change_emits_lightweight_preview_and_tracks_applied_value(

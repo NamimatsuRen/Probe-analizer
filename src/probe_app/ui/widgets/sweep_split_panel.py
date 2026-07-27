@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -30,6 +31,7 @@ class SweepSplitPanel(QWidget):
     run_requested = Signal()
     cancel_requested = Signal()
     current_time_offset_preview_changed = Signal(float)
+    auto_run_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,9 +75,30 @@ class SweepSplitPanel(QWidget):
         )
         self._offset_help.setObjectName("currentTimeOffsetHelp")
         self._offset_help.setWordWrap(True)
+        self._offset_help.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
         self._offset_help.setStyleSheet("color: #556070;")
 
-        self._run_button = QPushButton("Sweep分割を実行")
+        self._auto_run = QCheckBox("自動Sweep分割")
+        self._auto_run.setObjectName("autoSweepSplit")
+        self._auto_run.setChecked(True)
+        self._auto_run.setToolTip(
+            "currentとsweep voltageが揃ったshotを開いたとき、自動で分割します"
+        )
+        self._auto_run_help = QLabel(
+            "自動分割は系列の選択・復元時だけ実行します。"
+            "周期点数・sample範囲・時間補正を変更した場合は、"
+            "下のボタンで再分割してください。"
+        )
+        self._auto_run_help.setWordWrap(True)
+        self._auto_run_help.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Preferred,
+        )
+        self._auto_run_help.setStyleSheet("color: #556070;")
+        self._run_button = QPushButton("今すぐ分割／再分割")
         self._run_button.setObjectName("runSweepSplit")
         self._cancel_button = QPushButton("分割をキャンセル")
         self._cancel_button.setObjectName("cancelSweepSplit")
@@ -99,6 +122,8 @@ class SweepSplitPanel(QWidget):
         group_layout = QVBoxLayout(group)
         group_layout.addLayout(form)
         group_layout.addWidget(self._offset_help)
+        group_layout.addWidget(self._auto_run)
+        group_layout.addWidget(self._auto_run_help)
         group_layout.addLayout(buttons)
         group_layout.addWidget(self._status)
 
@@ -113,6 +138,7 @@ class SweepSplitPanel(QWidget):
         )
         self._run_button.clicked.connect(self.run_requested)
         self._cancel_button.clicked.connect(self.cancel_requested)
+        self._auto_run.toggled.connect(self.auto_run_changed)
         self.render_state(SweepRunStatus.IDLE, self._status.text(), ready=False)
 
     def parameters(self) -> LegacySweepSplitParameters:
@@ -137,6 +163,13 @@ class SweepSplitPanel(QWidget):
 
     def set_current_time_offset_s(self, offset_s: float) -> None:
         self._current_time_offset_ms.setValue(offset_s * 1_000.0)
+
+    @property
+    def auto_run_enabled(self) -> bool:
+        return self._auto_run.isChecked()
+
+    def set_auto_run_enabled(self, enabled: bool) -> None:
+        self._auto_run.setChecked(enabled)
 
     @property
     def offset_status_text(self) -> str:
@@ -167,6 +200,7 @@ class SweepSplitPanel(QWidget):
             self._sample_start,
             self._use_all_remaining,
             self._current_time_offset_ms,
+            self._auto_run,
         ):
             control.setEnabled(not self._running)
         self._sample_stop.setEnabled(
@@ -204,5 +238,5 @@ class SweepSplitPanel(QWidget):
             return
         self._offset_help.setText(
             f"Rawプレビュー: {offset_s * 1_000.0:+.6f} ms（未適用）。"
-            "I–V・Sweep一覧・平滑化/微分は「Sweep分割を実行」後に更新します。"
+            "I–V・Sweep一覧・平滑化/微分は「今すぐ分割／再分割」後に更新します。"
         )

@@ -15,7 +15,13 @@ from probe_app.application.state import LoadStatus, SweepRunStatus
 from probe_app.application.use_cases import SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
 from probe_app.domain.models.analysis_result import AnalysisStage, AnalysisStatus
-from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
+from probe_app.domain.models.series_role import (
+    AssignedSeries,
+    SeriesRole,
+    SeriesRoleAssignments,
+    SignalTransform,
+)
+from probe_app.domain.services import AssignmentApplyScope
 from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
 from probe_app.ui.main_window import MainWindow
 from tests.conftest import write_panta_series
@@ -112,6 +118,7 @@ def test_role_assignments_are_saved_and_restored(qtbot: object, tmp_path: Path) 
         settings=QSettings(str(settings_path), QSettings.Format.IniFormat)
     )
     qtbot.addWidget(first)  # type: ignore[attr-defined]
+    first._sweep_panel.set_auto_run_enabled(False)  # noqa: SLF001
     first.open_folder(measurement_folder)
     qtbot.waitUntil(  # type: ignore[attr-defined]
         lambda: first._state.status is LoadStatus.READY  # noqa: SLF001
@@ -176,6 +183,25 @@ class _FailingSaveStore:
         raise RoleAssignmentStoreError("save failed")
 
 
+class _RecordingAssignmentStore:
+    def __init__(
+        self,
+        initial: dict[str, SeriesRoleAssignments] | None = None,
+    ) -> None:
+        self.values = dict(initial or {})
+
+    def load(self, folder: Path, shot_id: str) -> SeriesRoleAssignments:
+        return self.values.get(shot_id, SeriesRoleAssignments())
+
+    def save(
+        self,
+        folder: Path,
+        shot_id: str,
+        assignments: SeriesRoleAssignments,
+    ) -> None:
+        self.values[shot_id] = assignments
+
+
 def test_assignment_store_failure_does_not_block_raw_view(
     qtbot: object,
     tmp_path: Path,
@@ -218,6 +244,136 @@ def test_assignment_save_failure_does_not_block_raw_view(
     assert "Raw表示はそのまま" in window._role_panel._persistence_status.text()  # noqa: SLF001
 
 
+def test_role_assignments_apply_to_all_matching_shots_without_overwriting_skips(
+    qtbot: object,
+    tmp_path: Path,
+) -> None:
+    measurement_folder = tmp_path / "measurements"
+    for shot_id in ("shot-001", "shot-002"):
+        write_panta_series(measurement_folder / shot_id, "current-channel")
+        write_panta_series(measurement_folder / shot_id, "voltage-channel")
+    write_panta_series(measurement_folder / "shot-003", "current-channel")
+    existing_skipped = SeriesRoleAssignments(
+        (
+            AssignedSeries(
+                role=SeriesRole.CURRENT,
+                series_id="shot-003/current-channel",
+                transform=SignalTransform(
+                    scale=0.25,
+                    sign=1.0,
+                    output_unit="A",
+                ),
+            ),
+        )
+    )
+    store = _RecordingAssignmentStore({"shot-003": existing_skipped})
+    window = MainWindow(
+        settings=QSettings(
+            str(tmp_path / "settings.ini"),
+            QSettings.Format.IniFormat,
+        ),
+        assignment_store=store,
+    )
+    qtbot.addWidget(window)  # type: ignore[attr-defined]
+    window._sweep_panel.set_auto_run_enabled(False)  # noqa: SLF001
+    window.open_folder(measurement_folder)
+    qtbot.waitUntil(  # type: ignore[attr-defined]
+        lambda: window._state.status is LoadStatus.READY  # noqa: SLF001
+        and window._load_task is None,  # noqa: SLF001
+        timeout=3_000,
+    )
+
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.CURRENT,
+        "shot-001/current-channel",
+    )
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.SWEEP_VOLTAGE,
+        "shot-001/voltage-channel",
+    )
+    window._role_panel.set_apply_scope(AssignmentApplyScope.ALL)  # noqa: SLF001
+    window._role_panel._apply_button.click()  # noqa: SLF001
+
+    shot_two = store.values["shot-002"]
+    assert (
+        shot_two.for_role(SeriesRole.CURRENT).series_id  # type: ignore[union-attr]
+        == "shot-002/current-channel"
+    )
+    assert (
+        shot_two.for_role(SeriesRole.SWEEP_VOLTAGE).series_id  # type: ignore[union-attr]
+        == "shot-002/voltage-channel"
+    )
+    assert store.values["shot-003"] == existing_skipped
+    persistence_message = window._role_panel._persistence_status.text()  # noqa: SLF001
+    assert "2 shotへ一括適用" in persistence_message
+    assert "shot-003" in persistence_message
+    assert "変更していません" in persistence_message
+
+
+def test_complete_role_assignments_start_sweep_split_automatically(
+    qtbot: object,
+    tmp_path: Path,
+) -> None:
+    measurement_folder = tmp_path / "measurements"
+    write_panta_series(
+        measurement_folder / "shot-001",
+        "current",
+        samples=np.arange(32, dtype=np.int16),
+        resolution=1.0,
+        offset=0.0,
+        time_resolution=0.01,
+        time_offset=0.0,
+    )
+    write_panta_series(
+        measurement_folder / "shot-001",
+        "voltage",
+        samples=np.tile(
+            np.asarray([-3, -1, 1, 3, 3, 1, -1, -3], dtype=np.int16),
+            4,
+        ),
+        resolution=1.0,
+        offset=0.0,
+        time_resolution=0.01,
+        time_offset=0.0,
+    )
+    window = MainWindow(
+        settings=QSettings(
+            str(tmp_path / "settings.ini"),
+            QSettings.Format.IniFormat,
+        )
+    )
+    qtbot.addWidget(window)  # type: ignore[attr-defined]
+    window._sweep_panel.set_parameters(  # noqa: SLF001
+        LegacySweepSplitParameters(
+            points_per_cycle=8,
+            sample_start=0,
+            sample_stop=32,
+        )
+    )
+    window.open_folder(measurement_folder)
+    qtbot.waitUntil(  # type: ignore[attr-defined]
+        lambda: window._state.status is LoadStatus.READY  # noqa: SLF001
+        and window._load_task is None,  # noqa: SLF001
+        timeout=3_000,
+    )
+
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.CURRENT,
+        "shot-001/current",
+    )
+    window._role_panel.select_series(  # noqa: SLF001
+        SeriesRole.SWEEP_VOLTAGE,
+        "shot-001/voltage",
+    )
+
+    qtbot.waitUntil(  # type: ignore[attr-defined]
+        lambda: window._state.sweep_status is SweepRunStatus.SUCCEEDED  # noqa: SLF001
+        and window._sweep_task is None,  # noqa: SLF001
+        timeout=3_000,
+    )
+    assert len(window._state.sweeps) == 6  # noqa: SLF001
+
+
 def test_level2_window_runs_sweep_split_and_discards_stale_result(
     qtbot: object,
     tmp_path: Path,
@@ -250,6 +406,7 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
         settings=QSettings(str(tmp_path / "settings.ini"), QSettings.Format.IniFormat)
     )
     qtbot.addWidget(window)  # type: ignore[attr-defined]
+    window._sweep_panel.set_auto_run_enabled(False)  # noqa: SLF001
     window.open_folder(measurement_folder)
     qtbot.waitUntil(  # type: ignore[attr-defined]
         lambda: window._state.status is LoadStatus.READY  # noqa: SLF001
