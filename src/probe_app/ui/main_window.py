@@ -8,7 +8,6 @@ from PySide6.QtCore import QSettings, Qt, QThreadPool
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
-    QLabel,
     QMainWindow,
     QMessageBox,
     QSplitter,
@@ -24,7 +23,10 @@ from probe_app.analysis import (
     preprocess_sweep,
 )
 from probe_app.application.ports import RoleAssignmentStore
-from probe_app.application.queries import build_summary_snapshot
+from probe_app.application.queries import (
+    build_export_candidates,
+    build_summary_snapshot,
+)
 from probe_app.application.state import AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
@@ -48,6 +50,7 @@ from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
     AnalysisWorkspace,
     DataBrowser,
+    ExportWorkspace,
     MetadataPanel,
     RawPlot,
     RoleAssignmentPanel,
@@ -101,6 +104,7 @@ class MainWindow(QMainWindow):
         self._analysis_sweep_iv_plot = self._analysis_workspace.plot
         self._preprocessing_panel = self._analysis_workspace.preprocessing_panel
         self._summary_workspace = SummaryWorkspace()
+        self._export_workspace = ExportWorkspace()
         self._details_tabs = QTabWidget()
         self._workspace_tabs = QTabWidget()
         self._status = StatusPanel()
@@ -161,13 +165,7 @@ class MainWindow(QMainWindow):
         self._workspace_tabs.addTab(self._data_workspace, "データ確認")
         self._workspace_tabs.addTab(self._analysis_workspace, "解析")
         self._workspace_tabs.addTab(self._summary_workspace, "サマリー")
-        self._workspace_tabs.addTab(
-            self._placeholder_workspace(
-                "Export対象はまだありません",
-                "採用した解析結果から論文用プロットを構成し、図と根拠情報を出力する画面です。",
-            ),
-            "Export",
-        )
+        self._workspace_tabs.addTab(self._export_workspace, "Export")
         self._workspace_tabs.setCurrentIndex(0)
 
         content = QSplitter(Qt.Orientation.Horizontal)
@@ -183,19 +181,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(content, 1)
         layout.addWidget(self._status)
         self.setCentralWidget(root)
-
-    @staticmethod
-    def _placeholder_workspace(title: str, description: str) -> QWidget:
-        title_label = QLabel(f"<h2>{title}</h2><p>{description}</p>")
-        title_label.setWordWrap(True)
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #556070; padding: 32px;")
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.addStretch(1)
-        layout.addWidget(title_label)
-        layout.addStretch(1)
-        return container
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("ファイル")
@@ -846,6 +831,10 @@ class MainWindow(QMainWindow):
                 None,
                 empty_message=self._state.sweep_message,
             )
+            self._export_workspace.render_candidates(
+                None,
+                empty_message=self._state.sweep_message,
+            )
             return
 
         current_revisions: dict[str, AnalysisInputRevision] = {}
@@ -876,6 +865,10 @@ class MainWindow(QMainWindow):
         self._summary_workspace.render_snapshot(
             snapshot,
             selected_sweep_id=self._state.selected_sweep_id,
+            empty_message=self._state.sweep_message,
+        )
+        self._export_workspace.render_candidates(
+            build_export_candidates(snapshot),
             empty_message=self._state.sweep_message,
         )
 

@@ -49,11 +49,18 @@ def test_level1_window_starts(qtbot: object) -> None:
         AnalysisStage.POTENTIAL
     )
     assert window._workspace_tabs.widget(2) is window._summary_workspace  # noqa: SLF001
+    assert window._workspace_tabs.widget(3) is window._export_workspace  # noqa: SLF001
     assert window._summary_workspace.row_count == 0  # noqa: SLF001
     assert "shot未選択" in window._summary_workspace.context_text  # noqa: SLF001
     assert "表示だけでは解析を再計算しません" in (  # noqa: SLF001
         window._summary_workspace.policy_text  # noqa: SLF001
     )
+    assert window._export_workspace.candidate_count == 0  # noqa: SLF001
+    assert "shot未選択" in window._export_workspace.scope_text  # noqa: SLF001
+    assert "解析値を変更・再計算しません" in (  # noqa: SLF001
+        window._export_workspace.policy_text  # noqa: SLF001
+    )
+    assert not window._export_workspace.renderer_constructed  # noqa: SLF001
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
     assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001

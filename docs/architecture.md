@@ -252,3 +252,45 @@ AppState.sweeps + AnalysisResultStore + current AnalysisInputRevision
 詳細は
 [サマリーワークスペース状態・集計契約](usability/summary-workspace-contract-2026-07-27.md)
 に記録する。
+
+### Exportワークスペースの読取境界
+
+ExportはSummaryと同じread-only projectionを入力にし、単一Sweepの共有selectionとは別の
+`ExportSelection`を持つ。表示や図styleの変更を解析処理の呼び出し元にしない。
+
+```text
+SummarySnapshot
+  └─ build_export_candidates()               application query（副作用なし）
+       └─ ExportCandidateSnapshot
+            ├─ current revision・valid/reviewを初期選択
+            └─ stale/error/excludedを警告付きで保持
+                 └─ ExportWorkspace          renderer未構築
+
+ExportSelection + FigureSpec + Provenance
+  └─ ExportManifest（canonical JSON / deterministic ID）
+       └─ Level 8 dedicated renderer
+            └─ SVG / PDF / PNG / source CSV / manifest
+```
+
+- `ExportSelection`はfolder、shot、位置、Sweep、方式、Raw/Filtered、除外採用を明示する。
+- `FigureSpec`は図種、panel、軸、単位、legend、error bar、論文presetを保持する。
+- `ExportManifest`はRevision、解析設定、version、採用点、除外理由を保存する。
+- session保存とfigure bundle出力は別の責務にする。
+- 現段階では重いrendererを作らず、workspace shellと契約だけを実装する。
+
+詳細は
+[Export論文図ビルダー仕様](usability/export-figure-builder-spec-2026-07-27.md)
+に記録する。
+
+### 4ワークスペースの回帰Gate
+
+- 100回の最上位タブ切替でworker、前処理、fitの開始を0回にする。
+- 共有Sweepの正規ソースを`AppState.selected_sweep_id`に限定する。
+- folder、role、split、preprocessing、fitの変更ごとに下流だけをstaleにする。
+- generation / Revisionが一致しない遅延結果を状態へ反映しない。
+- Summary/Exportでstale、error、excludedを黙って落とさず、既定対象からだけ外す。
+- 未使用時は解析配列とExport rendererを構築しない。
+
+状態表、性能Gate、macOS手動手順は
+[4ワークスペース状態同期・無再計算テスト](testing/workspace-regression.md)
+に記録する。

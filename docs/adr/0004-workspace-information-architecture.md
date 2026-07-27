@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-27
-- Related: GitHub #93, #94, #95, #96, #97
+- Related: GitHub #93, #94, #95, #96, #97, #99, #100, #101
 
 ## Context
 
@@ -109,3 +109,27 @@ Summary/Exportが使う集約scopeは単一Sweep選択へ上書きしない。�
 ### Export画面で解析パラメータも編集する
 
 論文図の調整が解析結果を変える危険があるため採用しない。
+
+## Export workspace gate
+
+Exportはtemplate-firstの論文図ビルダーとし、画面用plotを直接保存せず、source dataと
+deterministic manifestを入力にする専用rendererをLevel 8で追加する。現在のshellは
+`AnalysisResultStore`のread-only projectionだけを表示し、rendererを構築しない。
+
+- current revisionの`valid` / `review`だけを初期選択する。
+- stale、bad、error、excluded、not-runは理由付きで残す。
+- figure bundleはSVG/PDF/PNG/source CSV/manifestを同じbasenameで扱う。
+- analysis session保存とfigure bundle出力を別操作にする。
+- 同じmanifest、source data、renderer/code versionから同じ図を再生成する。
+
+3つの具体的な論文図ケースと出力契約は
+[Export論文図ビルダー仕様](../usability/export-figure-builder-spec-2026-07-27.md)
+に記録する。
+
+## Regression gate
+
+4ワークスペース移行後もLevel 1–3を壊さないため、タブ切替、共有Sweep、invalidation、
+旧generation破棄、Summary/Exportのread-only境界をP0回帰testとする。100回のタブ切替で
+workerと前処理の開始が0回であることをspyで固定する。詳細は
+[4ワークスペース状態同期・無再計算テスト](../testing/workspace-regression.md)
+に記録する。

@@ -48,6 +48,9 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - サマリーの既定集計分母を`current revision`かつ有効／要確認に限定し、分子・分母を表示
 - サマリーから対象Sweepを共有選択へ設定し、「解析で確認」で解析タブへ移動
 - サマリー表示そのものではフィットや前処理を再計算しない
+- Exportでcurrent revisionの有効／要確認だけを初期選択し、stale・失敗・除外も理由付きで表示
+- Exportの図種、論文preset、SVG/PDF/PNG/CSV/manifest bundleと再現情報の契約を表示
+- Exportを開く・対象やstyleを変える操作では解析値を変更・再計算しない
 
 ## 対応するフォルダ
 
@@ -87,6 +90,23 @@ uv run pytest
 uv run ruff check .
 uv run mypy
 ```
+
+### macOSでの4ワークスペース手動回帰
+
+1. アプリを起動し、最初に「データ確認」が開くことを確認する。
+2. 実データフォルダを選び、current／sweep voltageを割り当ててSweep分割する。
+3. 任意のSweepを選び、「データ確認」「解析」「サマリー」「Export」を20往復する。
+4. タブ切替だけで読込中表示、Sweep再分割、前処理再計算が始まらないことを確認する。
+5. 4タブで対象shotと選択Sweepが一致し、I–V・Raw highlightが変わらないことを確認する。
+6. SG設定を変更した場合は「前処理を再計算」を押すまでI–V・サマリー・Export対象が
+   変わらず、押した後だけ新しいRevisionになることを確認する。
+7. stale、失敗、除外結果がサマリーから消えず、Exportでは初期checkされないことを確認する。
+8. macOSの「アクティビティモニタ」でメモリを見ながらタブを100回切り替え、継続的な増加や
+   UI停止がないことを確認する。
+
+自動回帰では100回の切替についてworker開始0回、前処理呼出0回、1秒未満、Python追跡メモリ
+増加2 MiB未満を基準にする。環境差で基準を外れた場合は、計算開始回数をP0として先に調べ、
+時間・メモリ閾値は測定環境とともに記録して見直す。
 
 ## 現段階で意図的に行わないこと
 
@@ -157,4 +177,6 @@ Sweep.iv_voltage_v / iv_current_a
 - [Level 3性能測定](docs/benchmarks/level3-2026-07-24.md)
 - [Level 3レビュー](docs/reviews/level3-preprocessing-2026-07-24.md)
 - [サマリーワークスペース状態・集計契約](docs/usability/summary-workspace-contract-2026-07-27.md)
+- [Export論文図ビルダー仕様](docs/usability/export-figure-builder-spec-2026-07-27.md)
+- [4ワークスペース状態同期・無再計算テスト](docs/testing/workspace-regression.md)
 - [ADR: フォルダ起点の入力](docs/adr/0002-folder-first-input.md)
