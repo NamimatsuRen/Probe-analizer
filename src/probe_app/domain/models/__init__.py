@@ -22,6 +22,15 @@ from probe_app.domain.models.series_role import (
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
+from probe_app.domain.models.summary import (
+    SUMMARY_METHOD_ORDER,
+    SummaryMethod,
+    SummaryMethodValue,
+    SummaryRow,
+    SummaryScope,
+    SummaryScopeKind,
+    SummarySnapshot,
+)
 from probe_app.domain.models.sweep import (
     Sweep,
     SweepDirection,
@@ -47,6 +56,13 @@ __all__ = [
     "SignalAssignmentRevision",
     "SignalTransform",
     "StageResult",
+    "SUMMARY_METHOD_ORDER",
+    "SummaryMethod",
+    "SummaryMethodValue",
+    "SummaryRow",
+    "SummaryScope",
+    "SummaryScopeKind",
+    "SummarySnapshot",
     "Sweep",
     "SweepAnalysisRecord",
     "SweepDirection",

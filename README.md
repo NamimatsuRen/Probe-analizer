@@ -43,6 +43,11 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - 解析タブで選択Sweep、解析Revision、前処理の未実行・完了・要確認・staleを表示
 - 将来追加する`V_f/Phi`、飽和域fit、`T_i` fit、品質判定を工程として明示
 - 最上位タブを切り替えただけでは前処理やSweep分割を再実行しない
+- サマリーで現在shotの全Sweepを1行ずつ表示し、未実行・実行中・有効・要確認・不適・
+  エラー・再計算必要・除外を区別
+- サマリーの既定集計分母を`current revision`かつ有効／要確認に限定し、分子・分母を表示
+- サマリーから対象Sweepを共有選択へ設定し、「解析で確認」で解析タブへ移動
+- サマリー表示そのものではフィットや前処理を再計算しない
 
 ## 対応するフォルダ
 
@@ -151,4 +156,5 @@ Sweep.iv_voltage_v / iv_current_a
 - [Level 3数値契約・golden test](docs/testing/level3-preprocessing.md)
 - [Level 3性能測定](docs/benchmarks/level3-2026-07-24.md)
 - [Level 3レビュー](docs/reviews/level3-preprocessing-2026-07-24.md)
+- [サマリーワークスペース状態・集計契約](docs/usability/summary-workspace-contract-2026-07-27.md)
 - [ADR: フォルダ起点の入力](docs/adr/0002-folder-first-input.md)

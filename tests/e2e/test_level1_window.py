@@ -48,6 +48,12 @@ def test_level1_window_starts(qtbot: object) -> None:
     assert "未実装" in window._analysis_workspace.stage_text(  # noqa: SLF001
         AnalysisStage.POTENTIAL
     )
+    assert window._workspace_tabs.widget(2) is window._summary_workspace  # noqa: SLF001
+    assert window._summary_workspace.row_count == 0  # noqa: SLF001
+    assert "shot未選択" in window._summary_workspace.context_text  # noqa: SLF001
+    assert "表示だけでは解析を再計算しません" in (  # noqa: SLF001
+        window._summary_workspace.policy_text  # noqa: SLF001
+    )
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
     assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001
@@ -387,6 +393,26 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert window._summary_workspace.row_count == sweep_count  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._summary_workspace.selected_sweep_id == second_sweep.sweep_id
+    )
+    assert window._summary_workspace.status_text(  # noqa: SLF001
+        AnalysisStatus.NOT_RUN
+    ).endswith(str(sweep_count))
+    summary_index = window._workspace_tabs.indexOf(  # noqa: SLF001
+        window._summary_workspace  # noqa: SLF001
+    )
+    analysis_index = window._workspace_tabs.indexOf(  # noqa: SLF001
+        window._analysis_workspace  # noqa: SLF001
+    )
+    window._workspace_tabs.setCurrentIndex(summary_index)  # noqa: SLF001
+    qtbot.mouseClick(  # type: ignore[attr-defined]
+        window._summary_workspace._open_analysis,  # noqa: SLF001
+        Qt.MouseButton.LeftButton,
+    )
+    assert window._workspace_tabs.currentIndex() == analysis_index  # noqa: SLF001
+    assert window._state.selected_sweep == second_sweep  # noqa: SLF001
     np.testing.assert_allclose(  # noqa: SLF001
         window._sweep_iv_plot.displayed_voltage_v,
         second_sweep.iv_voltage_v,

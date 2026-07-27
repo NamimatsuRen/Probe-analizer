@@ -24,6 +24,7 @@ from probe_app.analysis import (
     preprocess_sweep,
 )
 from probe_app.application.ports import RoleAssignmentStore
+from probe_app.application.queries import build_summary_snapshot
 from probe_app.application.state import AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
@@ -41,6 +42,7 @@ from probe_app.domain.models.analysis_result import (
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
+from probe_app.domain.models.summary import SummaryScope, SummaryScopeKind
 from probe_app.domain.models.sweep import Sweep
 from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
 from probe_app.ui.widgets import (
@@ -50,6 +52,7 @@ from probe_app.ui.widgets import (
     RawPlot,
     RoleAssignmentPanel,
     StatusPanel,
+    SummaryWorkspace,
     SweepBrowser,
     SweepIVPlot,
     SweepSplitPanel,
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         self._analysis_workspace = AnalysisWorkspace()
         self._analysis_sweep_iv_plot = self._analysis_workspace.plot
         self._preprocessing_panel = self._analysis_workspace.preprocessing_panel
+        self._summary_workspace = SummaryWorkspace()
         self._details_tabs = QTabWidget()
         self._workspace_tabs = QTabWidget()
         self._status = StatusPanel()
@@ -112,6 +116,12 @@ class MainWindow(QMainWindow):
         self._sweep_browser.sweep_selected.connect(self._sweep_selected)
         self._preprocessing_panel.run_requested.connect(
             self._preprocessing_requested
+        )
+        self._summary_workspace.sweep_selected.connect(
+            self._summary_sweep_selected
+        )
+        self._summary_workspace.open_analysis_requested.connect(
+            self._open_summary_sweep_in_analysis
         )
         self._render_state()
 
@@ -150,13 +160,7 @@ class MainWindow(QMainWindow):
         self._workspace_tabs.setObjectName("primaryWorkspaceTabs")
         self._workspace_tabs.addTab(self._data_workspace, "データ確認")
         self._workspace_tabs.addTab(self._analysis_workspace, "解析")
-        self._workspace_tabs.addTab(
-            self._placeholder_workspace(
-                "解析結果はまだありません",
-                "解析済みSweepの T_i・Phi・品質をshotや位置ごとに比較する画面です。",
-            ),
-            "サマリー",
-        )
+        self._workspace_tabs.addTab(self._summary_workspace, "サマリー")
         self._workspace_tabs.addTab(
             self._placeholder_workspace(
                 "Export対象はまだありません",
@@ -529,6 +533,22 @@ class MainWindow(QMainWindow):
             self._render_analysis_workspace()
             self._render_actions()
 
+    def _summary_sweep_selected(self, sweep_id: str) -> None:
+        if not any(sweep.sweep_id == sweep_id for sweep in self._state.sweeps):
+            return
+        if self._state.selected_sweep_id == sweep_id:
+            return
+        sweep = next(
+            sweep for sweep in self._state.sweeps if sweep.sweep_id == sweep_id
+        )
+        self._sweep_selected(sweep)
+
+    def _open_summary_sweep_in_analysis(self, sweep_id: str) -> None:
+        self._summary_sweep_selected(sweep_id)
+        index = self._workspace_tabs.indexOf(self._analysis_workspace)
+        if index >= 0:
+            self._workspace_tabs.setCurrentIndex(index)
+
     def _current_time_offset_preview_changed(self, offset_s: float) -> None:
         selected_sweep = self._state.selected_sweep
         if selected_sweep is not None and math.isclose(
@@ -814,6 +834,48 @@ class MainWindow(QMainWindow):
         self._analysis_workspace.render_state(
             selected_sweep,
             record,
+            empty_message=self._state.sweep_message,
+        )
+        self._render_summary_workspace()
+
+    def _render_summary_workspace(self) -> None:
+        folder = self._state.folder
+        shot_id = self._state.role_assignment_shot_id
+        if folder is None or shot_id is None or not self._state.sweeps:
+            self._summary_workspace.render_snapshot(
+                None,
+                empty_message=self._state.sweep_message,
+            )
+            return
+
+        current_revisions: dict[str, AnalysisInputRevision] = {}
+        try:
+            settings = self._preprocessing_panel.settings()
+        except ValueError:
+            settings = None
+        if settings is not None:
+            for sweep in self._state.sweeps:
+                try:
+                    current_revisions[sweep.sweep_id] = (
+                        self._build_analysis_revision(sweep, settings)
+                    )
+                except ValueError:
+                    break
+
+        snapshot = build_summary_snapshot(
+            SummaryScope(
+                kind=SummaryScopeKind.CURRENT_SHOT,
+                folder_key=str(folder.resolve()),
+                shot_ids=(shot_id,),
+                current_revision_only=True,
+            ),
+            self._state.sweeps,
+            self._state.analysis_results,
+            current_revisions=current_revisions,
+        )
+        self._summary_workspace.render_snapshot(
+            snapshot,
+            selected_sweep_id=self._state.selected_sweep_id,
             empty_message=self._state.sweep_message,
         )
 

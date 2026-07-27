@@ -221,3 +221,34 @@ Level 3のshellでは次を実装済みとする。
 比較した3案、代表タスク、採用した組み合わせは
 [解析ワークスペース UXプロトタイプ比較](usability/analysis-workspace-prototypes-2026-07-27.md)
 に記録する。
+
+### サマリーワークスペースの読取境界
+
+サマリーは`AnalysisResultStore`を読み取るprojectionであり、解析処理の呼び出し元にはしない。
+
+```text
+AppState.sweeps + AnalysisResultStore + current AnalysisInputRevision
+  └─ build_summary_snapshot()                 application query（副作用なし）
+       └─ SummarySnapshot
+            ├─ scope / 集計分母
+            ├─ 全Sweepの状態行
+            └─ 4方式のPhi・T_i・K
+                 └─ SummaryWorkspace
+                      ├─ 状態件数
+                      ├─ Sweep一覧
+                      └─ 解析へのdrill-down
+```
+
+- `SummaryScope`はData/Analysisの単一Sweep選択と別の型で保持する。
+- 現段階のscopeは読み込んだ現在shot。複数shotと位置はLevel 7で段階的に追加する。
+- 全Sweepを1行ずつprojectionし、未実行・失敗・stale・除外を暗黙に落とさない。
+- 前処理だけ完了し`T_i`工程が未実行のrecordは、サマリーでは「未実行」とする。
+- 既定集計はcurrent revisionと一致する`valid` / `review`だけを分母候補にする。
+- 別Revisionしか存在しないSweepは「再計算必要」として表示し、既定集計には入れない。
+- 4方式の安定IDをdomainで定義し、未実装の方式も空欄ではなく「未実行」と表示する。
+- 行選択は共有`selected_sweep_id`へ反映し、「解析で確認」で解析タブへ移動する。
+- タブ表示・行選択・drill-downはreader、前処理、fitを実行しない。
+
+詳細は
+[サマリーワークスペース状態・集計契約](usability/summary-workspace-contract-2026-07-27.md)
+に記録する。
