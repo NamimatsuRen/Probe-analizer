@@ -22,7 +22,6 @@ jobs:
             label: Windows-x64
     env:
       QT_QPA_PLATFORM: offscreen
-      PYINSTALLER_CONFIG_DIR: ${{ runner.temp }}/pyinstaller
     steps:
       - name: Checkout
         uses: actions/checkout@v6
