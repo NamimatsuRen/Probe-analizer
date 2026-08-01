@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import math
+from collections import defaultdict
 from collections.abc import Mapping
 
 from probe_app.application.state.analysis_result_store import AnalysisResultStore
+from probe_app.domain.models.analysis_catalog import AnalysisCatalog, ShotAnalysisSnapshot
 from probe_app.domain.models.analysis_result import (
     AnalysisInputRevision,
     AnalysisStage,
@@ -12,10 +15,15 @@ from probe_app.domain.models.analysis_result import (
 )
 from probe_app.domain.models.summary import (
     SUMMARY_METHOD_ORDER,
+    SummaryAggregatePoint,
+    SummaryAggregateSnapshot,
     SummaryMethod,
     SummaryMethodValue,
+    SummaryMetric,
+    SummaryMetricStatistics,
     SummaryRow,
     SummaryScope,
+    SummaryScopeKind,
     SummarySnapshot,
 )
 from probe_app.domain.models.sweep import Sweep
@@ -43,6 +51,154 @@ def build_summary_snapshot(
         if _shot_id_for_sweep(sweep) in scope.shot_ids
     )
     return SummarySnapshot(scope=scope, rows=rows)
+
+
+def build_catalog_summary_snapshot(
+    folder_key: str,
+    catalog: AnalysisCatalog,
+    kind: SummaryScopeKind,
+) -> SummaryAggregateSnapshot:
+    """Aggregate lightweight shot snapshots without loading waveform arrays."""
+
+    if kind is SummaryScopeKind.CURRENT_SHOT:
+        raise ValueError("catalog summary requires loaded-shots or position scope")
+    shots = catalog.for_folder(folder_key)
+    if not shots:
+        raise ValueError("the selected folder has no captured shot results")
+    if kind is SummaryScopeKind.LOADED_SHOTS:
+        return _loaded_shot_aggregates(folder_key, shots)
+    return _position_aggregates(folder_key, shots)
+
+
+def _loaded_shot_aggregates(
+    folder_key: str,
+    shots: tuple[ShotAnalysisSnapshot, ...],
+) -> SummaryAggregateSnapshot:
+    points: list[SummaryAggregatePoint] = []
+    missing: list[tuple[str, str]] = []
+    for index, shot in enumerate(shots, start=1):
+        shot_points = _shot_metric_points(shot, x_value=float(index), label=shot.shot_id)
+        if shot_points:
+            points.extend(shot_points)
+        else:
+            missing.append((shot.shot_id, "集計可能なcurrent revision結果がありません"))
+    return SummaryAggregateSnapshot(
+        kind=SummaryScopeKind.LOADED_SHOTS,
+        folder_key=folder_key,
+        shot_ids=tuple(shot.shot_id for shot in shots),
+        points=tuple(points),
+        missing=tuple(missing),
+        x_label="shot",
+    )
+
+
+def _position_aggregates(
+    folder_key: str,
+    shots: tuple[ShotAnalysisSnapshot, ...],
+) -> SummaryAggregateSnapshot:
+    by_position: dict[float, list[ShotAnalysisSnapshot]] = defaultdict(list)
+    missing: list[tuple[str, str]] = []
+    for shot in shots:
+        position = shot.metadata.position
+        if position is None:
+            missing.append((shot.shot_id, "プローブ位置が未設定です"))
+            continue
+        by_position[position.millimeters].append(shot)
+
+    points: list[SummaryAggregatePoint] = []
+    for position_mm, position_shots in sorted(by_position.items()):
+        for metric in SummaryMetric:
+            for method in SUMMARY_METHOD_ORDER:
+                shot_means: list[float] = []
+                source_ids: list[str] = []
+                scope_count = 0
+                for shot in position_shots:
+                    statistic = _shot_statistics(shot, metric, method)
+                    scope_count += 1
+                    if statistic.mean is not None:
+                        shot_means.append(statistic.mean)
+                        source_ids.append(shot.shot_id)
+                if not shot_means:
+                    continue
+                mean = sum(shot_means) / len(shot_means)
+                sample_std = (
+                    math.sqrt(
+                        sum((value - mean) ** 2 for value in shot_means)
+                        / (len(shot_means) - 1)
+                    )
+                    if len(shot_means) > 1
+                    else None
+                )
+                points.append(
+                    SummaryAggregatePoint(
+                        group_id=f"position-mm:{position_mm:.12g}",
+                        label=f"{position_mm:g} mm",
+                        x_value=position_mm,
+                        method=method,
+                        metric=metric,
+                        count=len(shot_means),
+                        scope_count=scope_count,
+                        mean=mean,
+                        sample_std=sample_std,
+                        source_shot_ids=tuple(source_ids),
+                    )
+                )
+    return SummaryAggregateSnapshot(
+        kind=SummaryScopeKind.POSITION,
+        folder_key=folder_key,
+        shot_ids=tuple(shot.shot_id for shot in shots),
+        points=tuple(points),
+        missing=tuple(missing),
+        x_label="probe position",
+        x_unit="mm",
+    )
+
+
+def _shot_metric_points(
+    shot: ShotAnalysisSnapshot,
+    *,
+    x_value: float,
+    label: str,
+) -> tuple[SummaryAggregatePoint, ...]:
+    points: list[SummaryAggregatePoint] = []
+    for metric in SummaryMetric:
+        for method in SUMMARY_METHOD_ORDER:
+            statistic = _shot_statistics(shot, metric, method)
+            if statistic.mean is None:
+                continue
+            points.append(
+                SummaryAggregatePoint(
+                    group_id=shot.shot_id,
+                    label=label,
+                    x_value=x_value,
+                    method=method,
+                    metric=metric,
+                    count=statistic.count,
+                    scope_count=statistic.scope_count,
+                    mean=statistic.mean,
+                    sample_std=statistic.sample_std,
+                    source_shot_ids=(shot.shot_id,),
+                )
+            )
+    return tuple(points)
+
+
+def _shot_statistics(
+    shot: ShotAnalysisSnapshot,
+    metric: SummaryMetric,
+    method: SummaryMethod,
+) -> SummaryMetricStatistics:
+    snapshot = SummarySnapshot(
+        scope=SummaryScope(
+            kind=SummaryScopeKind.CURRENT_SHOT,
+            folder_key=shot.folder_key,
+            shot_ids=(shot.shot_id,),
+        ),
+        rows=shot.rows,
+    )
+    return next(
+        item for item in snapshot.metric_statistics(metric) if item.method is method
+    )
 
 
 def _build_row(

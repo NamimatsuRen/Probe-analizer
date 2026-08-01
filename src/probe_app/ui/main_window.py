@@ -26,14 +26,19 @@ from probe_app.analysis import (
     analyze_preprocessed,
     preprocess_sweep,
 )
-from probe_app.application.ports import RoleAssignmentStore
+from probe_app.application.ports import RoleAssignmentStore, ShotMetadataStore
 from probe_app.application.queries import (
+    build_catalog_summary_snapshot,
     build_export_candidates,
     build_summary_snapshot,
 )
 from probe_app.application.state import AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
+from probe_app.domain.models.analysis_catalog import (
+    AnalysisCatalog,
+    ShotAnalysisSnapshot,
+)
 from probe_app.domain.models.analysis_result import (
     AnalysisInputRevision,
     AnalysisStage,
@@ -48,13 +53,17 @@ from probe_app.domain.models.analysis_result import (
 from probe_app.domain.models.catalog import FolderCatalog
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
+from probe_app.domain.models.shot_metadata import ShotMetadata
 from probe_app.domain.models.summary import SummaryScope, SummaryScopeKind
 from probe_app.domain.models.sweep import Sweep
 from probe_app.domain.services import (
     AssignmentApplyScope,
     propagate_role_assignments,
 )
-from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
+from probe_app.infrastructure.persistence import (
+    QSettingsRoleAssignmentStore,
+    QSettingsShotMetadataStore,
+)
 from probe_app.ui.widgets import (
     AnalysisWorkspace,
     DataBrowser,
@@ -86,6 +95,7 @@ class MainWindow(QMainWindow):
         *,
         settings: QSettings | None = None,
         assignment_store: RoleAssignmentStore | None = None,
+        shot_metadata_store: ShotMetadataStore | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Probe Analizer — Rawデータブラウザ")
@@ -100,6 +110,12 @@ class MainWindow(QMainWindow):
             if assignment_store is not None
             else QSettingsRoleAssignmentStore(self._settings)
         )
+        self._shot_metadata_store = (
+            shot_metadata_store
+            if shot_metadata_store is not None
+            else QSettingsShotMetadataStore(self._settings)
+        )
+        self._analysis_catalog = AnalysisCatalog()
         self._thread_pool = QThreadPool.globalInstance()
         self._scan_generation = 0
         self._load_generation = 0
@@ -171,6 +187,12 @@ class MainWindow(QMainWindow):
         )
         self._summary_workspace.restore_requested.connect(
             self._restore_summary_sweep
+        )
+        self._summary_workspace.scope_changed.connect(
+            self._summary_scope_changed
+        )
+        self._summary_workspace.shot_metadata_changed.connect(
+            self._shot_metadata_changed
         )
         self._render_state()
 
@@ -280,6 +302,10 @@ class MainWindow(QMainWindow):
             self.open_folder(self._state.folder)
 
     def open_folder(self, folder: Path) -> None:
+        folder_key = str(folder.resolve())
+        self._analysis_catalog = self._analysis_catalog.clear_other_folders(
+            folder_key
+        )
         self._cancel_tasks()
         self._scan_generation += 1
         self._load_generation += 1
@@ -1291,10 +1317,45 @@ class MainWindow(QMainWindow):
     def _render_summary_workspace(self) -> None:
         folder = self._state.folder
         shot_id = self._state.role_assignment_shot_id
-        if folder is None or shot_id is None or not self._state.sweeps:
+        if folder is None:
             self._summary_workspace.render_snapshot(
                 None,
                 empty_message=self._state.sweep_message,
+            )
+            self._export_workspace.render_candidates(
+                None,
+                empty_message=self._state.sweep_message,
+            )
+            return
+
+        folder_key = str(folder.resolve())
+        shot_metadata = self._summary_shot_metadata(folder)
+        scope_kind = self._summary_workspace.selected_scope_kind
+        if scope_kind is not SummaryScopeKind.CURRENT_SHOT:
+            try:
+                aggregate = build_catalog_summary_snapshot(
+                    folder_key,
+                    self._analysis_catalog,
+                    scope_kind,
+                )
+            except ValueError as error:
+                self._summary_workspace.render_aggregate(
+                    None,
+                    shot_metadata=shot_metadata,
+                    empty_message=str(error),
+                )
+            else:
+                self._summary_workspace.render_aggregate(
+                    aggregate,
+                    shot_metadata=shot_metadata,
+                )
+            return
+
+        if shot_id is None or not self._state.sweeps:
+            self._summary_workspace.render_snapshot(
+                None,
+                empty_message=self._state.sweep_message,
+                shot_metadata=shot_metadata,
             )
             self._export_workspace.render_candidates(
                 None,
@@ -1319,7 +1380,7 @@ class MainWindow(QMainWindow):
         snapshot = build_summary_snapshot(
             SummaryScope(
                 kind=SummaryScopeKind.CURRENT_SHOT,
-                folder_key=str(folder.resolve()),
+                folder_key=folder_key,
                 shot_ids=(shot_id,),
                 current_revision_only=True,
             ),
@@ -1327,15 +1388,66 @@ class MainWindow(QMainWindow):
             self._state.analysis_results,
             current_revisions=current_revisions,
         )
+        current_metadata = next(
+            (
+                metadata
+                for metadata in shot_metadata
+                if metadata.shot_id == shot_id
+            ),
+            ShotMetadata(folder_key=folder_key, shot_id=shot_id),
+        )
+        self._analysis_catalog = self._analysis_catalog.put(
+            ShotAnalysisSnapshot.capture(snapshot, current_metadata)
+        )
         self._summary_workspace.render_snapshot(
             snapshot,
             selected_sweep_id=self._state.selected_sweep_id,
             empty_message=self._state.sweep_message,
+            shot_metadata=shot_metadata,
         )
         self._export_workspace.render_candidates(
             build_export_candidates(snapshot),
             empty_message=self._state.sweep_message,
         )
+
+    def _summary_scope_changed(self, _scope: object) -> None:
+        self._render_summary_workspace()
+
+    def _summary_shot_metadata(
+        self,
+        folder: Path,
+    ) -> tuple[ShotMetadata, ...]:
+        catalog = self._state.catalog
+        if catalog is None:
+            return ()
+        return tuple(
+            self._shot_metadata_store.load(folder, shot_id)
+            for shot_id in catalog.shots
+        )
+
+    def _shot_metadata_changed(self, metadata_object: object) -> None:
+        folder = self._state.folder
+        if folder is None or not isinstance(metadata_object, ShotMetadata):
+            return
+        folder_key = str(folder.resolve())
+        if metadata_object.folder_key != folder_key:
+            self._summary_workspace.show_metadata_error(
+                "選択中フォルダとshot metadataが一致しません"
+            )
+            return
+        try:
+            self._shot_metadata_store.save(folder, metadata_object)
+        except (OSError, ValueError) as error:
+            LOGGER.warning("Shot metadata save failed: %s", error)
+            self._summary_workspace.show_metadata_error(
+                f"位置metadataを保存できませんでした: {error}"
+            )
+            return
+        self._analysis_catalog = self._analysis_catalog.update_metadata(
+            metadata_object
+        )
+        self._render_summary_workspace()
+        self._summary_workspace.show_metadata_saved()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()

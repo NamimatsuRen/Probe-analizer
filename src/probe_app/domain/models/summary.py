@@ -32,6 +32,69 @@ class SummaryMetric(StrEnum):
     PHI = "phi"
 
 
+@dataclass(frozen=True, slots=True)
+class SummaryAggregatePoint:
+    """One shot-level or position-level aggregate with an explicit denominator."""
+
+    group_id: str
+    label: str
+    x_value: float
+    method: SummaryMethod
+    metric: SummaryMetric
+    count: int
+    scope_count: int
+    mean: float
+    sample_std: float | None
+    source_shot_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.group_id.strip() or not self.label.strip():
+            raise ValueError("aggregate group identity cannot be empty")
+        if not math.isfinite(self.x_value) or not math.isfinite(self.mean):
+            raise ValueError("aggregate coordinates must be finite")
+        if self.sample_std is not None and not math.isfinite(self.sample_std):
+            raise ValueError("sample_std must be finite when present")
+        if self.count < 1 or self.scope_count < self.count:
+            raise ValueError("aggregate counts are inconsistent")
+        if not self.source_shot_ids:
+            raise ValueError("aggregate points require source shots")
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryAggregateSnapshot:
+    """Read-only cross-shot projection used by Summary and Export."""
+
+    kind: SummaryScopeKind
+    folder_key: str
+    shot_ids: tuple[str, ...]
+    points: tuple[SummaryAggregatePoint, ...]
+    missing: tuple[tuple[str, str], ...] = ()
+    x_label: str = "shot"
+    x_unit: str = ""
+
+    def __post_init__(self) -> None:
+        if self.kind is SummaryScopeKind.CURRENT_SHOT:
+            raise ValueError("aggregate snapshot requires a cross-shot scope")
+        if not self.folder_key.strip() or not self.shot_ids:
+            raise ValueError("aggregate scope cannot be empty")
+        if len(self.shot_ids) != len(set(self.shot_ids)):
+            raise ValueError("aggregate shot IDs must be unique")
+        missing_ids = tuple(shot_id for shot_id, _ in self.missing)
+        if len(missing_ids) != len(set(missing_ids)):
+            raise ValueError("missing shot IDs must be unique")
+
+    def points_for(
+        self,
+        metric: SummaryMetric,
+        method: SummaryMethod,
+    ) -> tuple[SummaryAggregatePoint, ...]:
+        return tuple(
+            point
+            for point in self.points
+            if point.metric is metric and point.method is method
+        )
+
+
 SUMMARY_METHOD_ORDER = (
     SummaryMethod.FILTERED_LOG,
     SummaryMethod.FILTERED_DERIVATIVE,

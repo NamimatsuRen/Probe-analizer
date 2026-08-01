@@ -1,3 +1,7 @@
+from probe_app.domain.models.analysis_catalog import (
+    AnalysisCatalog,
+    ShotAnalysisSnapshot,
+)
 from probe_app.domain.models.analysis_result import (
     ANALYSIS_STAGE_ORDER,
     AnalysisInputRevision,
@@ -38,8 +42,15 @@ from probe_app.domain.models.series_role import (
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
+from probe_app.domain.models.shot_metadata import (
+    ProbePosition,
+    ProbePositionUnit,
+    ShotMetadata,
+)
 from probe_app.domain.models.summary import (
     SUMMARY_METHOD_ORDER,
+    SummaryAggregatePoint,
+    SummaryAggregateSnapshot,
     SummaryMethod,
     SummaryMethodValue,
     SummaryMetric,
@@ -59,6 +70,7 @@ from probe_app.domain.models.sweep import (
 
 __all__ = [
     "ANALYSIS_STAGE_ORDER",
+    "AnalysisCatalog",
     "AnalysisInputRevision",
     "AnalysisStage",
     "AnalysisStatus",
@@ -80,6 +92,8 @@ __all__ = [
     "PhysicalSignal",
     "PanelSpec",
     "PreprocessingRevision",
+    "ProbePosition",
+    "ProbePositionUnit",
     "RawSeries",
     "RawSeriesDescriptor",
     "ScanProblem",
@@ -88,9 +102,13 @@ __all__ = [
     "SeriesStyle",
     "SignalAssignmentRevision",
     "SignalTransform",
+    "ShotAnalysisSnapshot",
+    "ShotMetadata",
     "StageResult",
     "SUMMARY_METHOD_ORDER",
     "SummaryMetric",
+    "SummaryAggregatePoint",
+    "SummaryAggregateSnapshot",
     "SummaryMetricStatistics",
     "SummaryMethod",
     "SummaryMethodValue",

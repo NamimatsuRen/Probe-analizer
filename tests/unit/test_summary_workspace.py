@@ -9,6 +9,9 @@ from PySide6.QtCore import Qt
 
 from probe_app.domain.models import (
     AnalysisStatus,
+    ProbePosition,
+    ProbePositionUnit,
+    ShotMetadata,
     SummaryMethod,
     SummaryMethodValue,
     SummaryRow,
@@ -121,6 +124,37 @@ def test_summary_workspace_requests_restore_for_excluded_current_result(
         )
 
     assert restored.args == [excluded_row.sweep_id]
+
+
+def test_summary_workspace_emits_scope_and_explicit_metadata_changes(
+    qtbot: object,
+) -> None:
+    workspace = SummaryWorkspace()
+    qtbot.addWidget(workspace)  # type: ignore[attr-defined]
+    metadata = ShotMetadata(
+        folder_key="/measurements",
+        shot_id="shot-001",
+        position=ProbePosition(2.5, ProbePositionUnit.MILLIMETER),
+    )
+    workspace.render_snapshot(_snapshot(), shot_metadata=(metadata,))
+
+    with qtbot.waitSignal(workspace.scope_changed) as scope_changed:  # type: ignore[attr-defined]
+        workspace._scope.setCurrentIndex(1)  # noqa: SLF001
+
+    assert scope_changed.args == [SummaryScopeKind.LOADED_SHOTS]
+
+    workspace._scope.setCurrentIndex(0)  # noqa: SLF001
+    workspace._metadata_editor._position.setText("3.25")  # noqa: SLF001
+    with qtbot.waitSignal(workspace.shot_metadata_changed) as changed:  # type: ignore[attr-defined]
+        qtbot.mouseClick(  # type: ignore[attr-defined]
+            workspace._metadata_editor._save,  # noqa: SLF001
+            Qt.MouseButton.LeftButton,
+        )
+
+    saved = changed.args[0]
+    assert isinstance(saved, ShotMetadata)
+    assert saved.position is not None
+    assert saved.position.value == 3.25
 
 
 def _snapshot() -> SummarySnapshot:
