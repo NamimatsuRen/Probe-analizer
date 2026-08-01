@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from probe_app.domain.models.analysis_result import (
     AnalysisInputRevision,
     AnalysisStage,
+    AnalysisStatus,
     SweepAnalysisRecord,
 )
 
@@ -56,6 +57,24 @@ class AnalysisResultStore:
     ) -> SweepAnalysisRecord | None:
         record = self.get(revision)
         return record if record is not None and record.is_usable else None
+
+    def exclude(
+        self,
+        revision: AnalysisInputRevision,
+        reason: str,
+    ) -> AnalysisResultStore:
+        record = self.get(revision)
+        if record is None:
+            raise ValueError("cannot exclude an analysis result that does not exist")
+        return self.put(record.exclude(reason))
+
+    def restore(self, revision: AnalysisInputRevision) -> AnalysisResultStore:
+        record = self.get(revision)
+        if record is None:
+            raise ValueError("cannot restore an analysis result that does not exist")
+        if record.status is not AnalysisStatus.EXCLUDED:
+            raise ValueError("only an excluded analysis result can be restored")
+        return self.put(record.restore())
 
     def mark_sweep_stale(
         self,

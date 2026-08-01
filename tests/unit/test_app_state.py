@@ -234,6 +234,28 @@ def test_analysis_records_follow_sweep_and_become_stale_when_inputs_change(
     ).status is AnalysisStatus.STALE
 
 
+def test_manual_exclusion_and_restore_keep_analysis_in_current_state(
+    tmp_path: Path,
+) -> None:
+    sweep = _sweep("first", 0)
+    revision = _analysis_revision(tmp_path, sweep.sweep_id)
+    original = SweepAnalysisRecord(
+        revision=revision,
+        status=AnalysisStatus.VALID,
+        message="解析完了",
+    )
+    state = AppState(sweeps=(sweep,)).record_analysis(original)
+
+    excluded = state.exclude_analysis(revision, "ノイズ混入")
+    excluded_record = excluded.analysis_results.get(revision)
+
+    assert excluded_record is not None
+    assert excluded_record.status is AnalysisStatus.EXCLUDED
+    assert excluded_record.exclusion_reason == "ノイズ混入"
+    restored = excluded.restore_analysis(revision)
+    assert restored.analysis_results.get(revision) == original
+
+
 def _sweep(sweep_id: str, start: int) -> Sweep:
     return Sweep(
         sweep_id=sweep_id,

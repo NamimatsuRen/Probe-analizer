@@ -92,8 +92,42 @@ def test_exclusion_is_distinct_from_bad_and_can_be_restored() -> None:
     assert excluded.status is AnalysisStatus.EXCLUDED
     assert excluded.exclusion_reason == "放電由来の異常波形"
     restored = excluded.restore()
-    assert restored.status is AnalysisStatus.REVIEW
+    assert restored.status is AnalysisStatus.BAD
     assert restored.exclusion_reason == ""
+
+
+def test_exclusion_restores_original_message_and_normalizes_reason() -> None:
+    record = SweepAnalysisRecord(
+        revision=_revision(),
+        status=AnalysisStatus.VALID,
+        message="解析完了",
+    )
+
+    excluded = record.exclude("  ノイズ混入  ")
+
+    assert excluded.exclusion_reason == "ノイズ混入"
+    assert excluded.status_before_exclusion is AnalysisStatus.VALID
+    assert excluded.message_before_exclusion == "解析完了"
+    assert excluded.restore() == record
+
+
+def test_excluded_record_restores_as_stale_when_inputs_changed() -> None:
+    record = SweepAnalysisRecord(
+        revision=_revision(),
+        status=AnalysisStatus.VALID,
+        stages=(_stage(AnalysisStage.TEMPERATURE),),
+    ).exclude("ノイズ混入")
+
+    stale_excluded = record.mark_stale_from(
+        AnalysisStage.POTENTIAL,
+        "Phi設定が変更されました",
+    )
+
+    assert stale_excluded.status is AnalysisStatus.EXCLUDED
+    assert stale_excluded.exclusion_reason == "ノイズ混入"
+    restored = stale_excluded.restore()
+    assert restored.status is AnalysisStatus.STALE
+    assert restored.message == "Phi設定が変更されました"
 
 
 def test_store_rejects_late_result_from_old_revision() -> None:
@@ -132,6 +166,26 @@ def test_store_only_exposes_usable_result_for_matching_revision() -> None:
     assert store.accepted_current(valid_revision) is not None
     assert store.accepted_current(stale_revision) is None
     assert store.latest_for_sweep("shot-a/voltage:200000:210000") is not None
+
+
+def test_store_excludes_and_restores_exact_revision_without_reanalysis() -> None:
+    revision = _revision(generation_id=8)
+    record = SweepAnalysisRecord(
+        revision=revision,
+        status=AnalysisStatus.VALID,
+        stages=(_stage(AnalysisStage.TEMPERATURE),),
+        message="T_i fit完了",
+    )
+    store = AnalysisResultStore().put(record)
+
+    excluded_store = store.exclude(revision, "外来ノイズ")
+    excluded = excluded_store.get(revision)
+
+    assert excluded is not None
+    assert excluded.status is AnalysisStatus.EXCLUDED
+    assert excluded.stages == record.stages
+    restored_store = excluded_store.restore(revision)
+    assert restored_store.get(revision) == record
 
 
 def _stage(

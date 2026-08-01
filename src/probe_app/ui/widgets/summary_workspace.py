@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSplitter,
     QTabWidget,
@@ -56,6 +57,8 @@ class SummaryWorkspace(QWidget):
 
     sweep_selected = Signal(str)
     open_analysis_requested = Signal(str)
+    exclusion_requested = Signal(str, str)
+    restore_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -223,10 +226,40 @@ class SummaryWorkspace(QWidget):
         self._open_analysis.setEnabled(False)
         self._open_analysis.clicked.connect(self._request_analysis)
 
+        self._exclusion_reason = QLineEdit()
+        self._exclusion_reason.setObjectName("summaryExclusionReason")
+        self._exclusion_reason.setPlaceholderText(
+            "例: 放電由来の異常波形、ノイズ混入、測定条件外"
+        )
+        self._exclusion_reason.returnPressed.connect(self._request_exclusion)
+
+        self._exclude = QPushButton("集計から除外")
+        self._exclude.setObjectName("excludeSummarySweep")
+        self._exclude.setEnabled(False)
+        self._exclude.clicked.connect(self._request_exclusion)
+
+        self._restore = QPushButton("除外を解除")
+        self._restore.setObjectName("restoreSummarySweep")
+        self._restore.setEnabled(False)
+        self._restore.clicked.connect(self._request_restore)
+
+        self._exclusion_feedback = QLabel()
+        self._exclusion_feedback.setObjectName("summaryExclusionFeedback")
+        self._exclusion_feedback.setWordWrap(True)
+
+        exclusion_actions = QHBoxLayout()
+        exclusion_actions.addWidget(self._exclude)
+        exclusion_actions.addWidget(self._restore)
+        exclusion_actions.addStretch(1)
+
         detail_group = QGroupBox("選択Sweepの4方式")
         detail_layout = QVBoxLayout(detail_group)
         detail_layout.addWidget(self._selected)
         detail_layout.addWidget(self._methods, 1)
+        detail_layout.addWidget(QLabel("集計から除外する理由"))
+        detail_layout.addWidget(self._exclusion_reason)
+        detail_layout.addLayout(exclusion_actions)
+        detail_layout.addWidget(self._exclusion_feedback)
         detail_layout.addWidget(self._open_analysis)
 
         body = QSplitter(Qt.Orientation.Horizontal)
@@ -290,6 +323,10 @@ class SummaryWorkspace(QWidget):
         return self._policy.text()
 
     @property
+    def exclusion_feedback_text(self) -> str:
+        return self._exclusion_feedback.text()
+
+    @property
     def average_row_count(self) -> int:
         return self._averages.topLevelItemCount()
 
@@ -303,6 +340,10 @@ class SummaryWorkspace(QWidget):
 
     def status_text(self, status: AnalysisStatus) -> str:
         return self._status_labels[status].text()
+
+    def show_exclusion_error(self, message: str) -> None:
+        self._exclusion_feedback.setText(message)
+        self._exclusion_feedback.setStyleSheet("color: #b42318;")
 
     def render_snapshot(
         self,
@@ -481,6 +522,11 @@ class SummaryWorkspace(QWidget):
         if row is None:
             self._selected.setText("Sweepを選択すると4方式の状態を確認できます")
             self._open_analysis.setEnabled(False)
+            self._exclusion_reason.clear()
+            self._exclusion_reason.setEnabled(False)
+            self._exclude.setEnabled(False)
+            self._restore.setEnabled(False)
+            self._exclusion_feedback.clear()
             return
         status_label, _, _ = _STATUS_PRESENTATION[row.status]
         aggregate_target = (
@@ -491,6 +537,29 @@ class SummaryWorkspace(QWidget):
             f"{row.sweep_id}\n状態: {status_label} ｜ "
             f"既定集計: {'対象' if aggregate_target else '対象外'}"
         )
+        has_current_result = row.current_revision and bool(row.revision_key)
+        is_excluded = row.status is AnalysisStatus.EXCLUDED
+        self._exclusion_reason.setEnabled(has_current_result and not is_excluded)
+        self._exclusion_reason.setText(
+            row.exclusion_reason if is_excluded else ""
+        )
+        self._exclude.setEnabled(has_current_result and not is_excluded)
+        self._restore.setEnabled(has_current_result and is_excluded)
+        if is_excluded:
+            self._exclusion_feedback.setText(
+                f"除外理由: {row.exclusion_reason}"
+            )
+            self._exclusion_feedback.setStyleSheet("color: #475467;")
+        elif has_current_result:
+            self._exclusion_feedback.setText(
+                "除外・復元は集計表示だけを更新し、解析は再実行しません。"
+            )
+            self._exclusion_feedback.setStyleSheet("color: #475467;")
+        else:
+            self._exclusion_feedback.setText(
+                "現在のRevisionの解析結果がないため、除外操作はできません。"
+            )
+            self._exclusion_feedback.setStyleSheet("color: #b54708;")
         method_map = {method.method: method for method in row.methods}
         for method_id in SUMMARY_METHOD_ORDER:
             method = method_map.get(method_id)
@@ -516,6 +585,26 @@ class SummaryWorkspace(QWidget):
         sweep_id = self.selected_sweep_id
         if sweep_id is not None:
             self.open_analysis_requested.emit(sweep_id)
+
+    def _request_exclusion(self) -> None:
+        sweep_id = self.selected_sweep_id
+        if sweep_id is None or not self._exclude.isEnabled():
+            return
+        reason = self._exclusion_reason.text().strip()
+        if not reason:
+            self._exclusion_feedback.setText(
+                "除外理由を入力してください。理由なしでは集計から外しません。"
+            )
+            self._exclusion_feedback.setStyleSheet("color: #b54708;")
+            self._exclusion_reason.setFocus()
+            return
+        self._exclusion_feedback.clear()
+        self.exclusion_requested.emit(sweep_id, reason)
+
+    def _request_restore(self) -> None:
+        sweep_id = self.selected_sweep_id
+        if sweep_id is not None and self._restore.isEnabled():
+            self.restore_requested.emit(sweep_id)
 
 
 def _format_optional(value: float | None) -> str:

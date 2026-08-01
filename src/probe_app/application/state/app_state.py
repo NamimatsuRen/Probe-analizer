@@ -348,6 +348,32 @@ class AppState:
         )
         return replace(self, analysis_results=store), accepted
 
+    def exclude_analysis(
+        self,
+        revision: AnalysisInputRevision,
+        reason: str,
+    ) -> AppState:
+        if revision.sweep_id not in {sweep.sweep_id for sweep in self.sweeps}:
+            raise ValueError(
+                "analysis record is outside current Sweeps: "
+                f"{revision.sweep_id}"
+            )
+        return replace(
+            self,
+            analysis_results=self.analysis_results.exclude(revision, reason),
+        )
+
+    def restore_analysis(self, revision: AnalysisInputRevision) -> AppState:
+        if revision.sweep_id not in {sweep.sweep_id for sweep in self.sweeps}:
+            raise ValueError(
+                "analysis record is outside current Sweeps: "
+                f"{revision.sweep_id}"
+            )
+        return replace(
+            self,
+            analysis_results=self.analysis_results.restore(revision),
+        )
+
     def invalidate_analysis(
         self,
         sweep_id: str,

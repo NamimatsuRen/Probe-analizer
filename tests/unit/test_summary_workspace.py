@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -64,6 +65,62 @@ def test_summary_workspace_selection_and_drill_down_share_sweep_id(
         )
 
     assert opened.args == ["shot-001/voltage:20:30"]
+
+
+def test_summary_workspace_requires_reason_and_requests_exclusion(
+    qtbot: object,
+) -> None:
+    workspace = SummaryWorkspace()
+    qtbot.addWidget(workspace)  # type: ignore[attr-defined]
+    workspace.render_snapshot(
+        _snapshot(),
+        selected_sweep_id="shot-001/voltage:10:20",
+    )
+
+    qtbot.mouseClick(  # type: ignore[attr-defined]
+        workspace._exclude,  # noqa: SLF001
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert "除外理由を入力" in workspace.exclusion_feedback_text
+
+    workspace._exclusion_reason.setText("放電由来の異常波形")  # noqa: SLF001
+    with qtbot.waitSignal(workspace.exclusion_requested) as excluded:  # type: ignore[attr-defined]
+        qtbot.mouseClick(  # type: ignore[attr-defined]
+            workspace._exclude,  # noqa: SLF001
+            Qt.MouseButton.LeftButton,
+        )
+
+    assert excluded.args == [
+        "shot-001/voltage:10:20",
+        "放電由来の異常波形",
+    ]
+
+
+def test_summary_workspace_requests_restore_for_excluded_current_result(
+    qtbot: object,
+) -> None:
+    workspace = SummaryWorkspace()
+    qtbot.addWidget(workspace)  # type: ignore[attr-defined]
+    snapshot = _snapshot()
+    excluded_row = replace(
+        snapshot.rows[0],
+        status=AnalysisStatus.EXCLUDED,
+        exclusion_reason="ノイズ混入",
+    )
+    workspace.render_snapshot(
+        replace(snapshot, rows=(excluded_row, snapshot.rows[1])),
+        selected_sweep_id=excluded_row.sweep_id,
+    )
+
+    assert "ノイズ混入" in workspace.exclusion_feedback_text
+    with qtbot.waitSignal(workspace.restore_requested) as restored:  # type: ignore[attr-defined]
+        qtbot.mouseClick(  # type: ignore[attr-defined]
+            workspace._restore,  # noqa: SLF001
+            Qt.MouseButton.LeftButton,
+        )
+
+    assert restored.args == [excluded_row.sweep_id]
 
 
 def _snapshot() -> SummarySnapshot:
