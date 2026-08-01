@@ -43,11 +43,17 @@ class DataBrowser(QWidget):
         self._tree.clear()
         self._folder_label.setText(folder_text)
 
-    def set_catalog(self, catalog: FolderCatalog) -> RawSeriesDescriptor | None:
+    def set_catalog(
+        self,
+        catalog: FolderCatalog,
+        *,
+        selected_series_id: str | None = None,
+    ) -> RawSeriesDescriptor | None:
         self.clear_catalog(str(catalog.root))
         self._descriptors = {item.series_id: item for item in catalog.series}
 
         first_item: QTreeWidgetItem | None = None
+        selected_item: QTreeWidgetItem | None = None
         for shot_id in catalog.shots:
             shot_item = QTreeWidgetItem([shot_id])
             shot_item.setFlags(shot_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
@@ -65,13 +71,16 @@ class DataBrowser(QWidget):
                 shot_item.addChild(series_item)
                 if first_item is None:
                     first_item = series_item
+                if descriptor.series_id == selected_series_id:
+                    selected_item = series_item
             shot_item.setExpanded(True)
 
         self._tree.resizeColumnToContents(0)
         if first_item is None:
             return None
-        self._tree.setCurrentItem(first_item)
-        return self._descriptors.get(first_item.data(0, SERIES_ID_ROLE))
+        target_item = selected_item or first_item
+        self._tree.setCurrentItem(target_item)
+        return self._descriptors.get(target_item.data(0, SERIES_ID_ROLE))
 
     def _emit_selection(self) -> None:
         item: QTreeWidgetItem | None = self._tree.currentItem()

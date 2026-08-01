@@ -15,6 +15,7 @@ from probe_app.domain.models.analysis_result import (
     SweepSplitRevision,
     downstream_stages,
 )
+from probe_app.domain.models.audit import AuditAction, AuditEvent, AuditTrail
 from probe_app.domain.models.catalog import FolderCatalog, ScanProblem
 from probe_app.domain.models.export import (
     AxisScale,
@@ -31,6 +32,12 @@ from probe_app.domain.models.export import (
     FigureSpec,
     PanelSpec,
     SeriesStyle,
+)
+from probe_app.domain.models.project import (
+    PROJECT_SCHEMA_VERSION,
+    ProjectDocument,
+    ProjectShotSettings,
+    relink_project,
 )
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import (
@@ -75,6 +82,9 @@ __all__ = [
     "AnalysisStage",
     "AnalysisStatus",
     "AssignedSeries",
+    "AuditAction",
+    "AuditEvent",
+    "AuditTrail",
     "AxisScale",
     "AxisSpec",
     "ExportArtifactKind",
@@ -92,8 +102,11 @@ __all__ = [
     "PhysicalSignal",
     "PanelSpec",
     "PreprocessingRevision",
+    "PROJECT_SCHEMA_VERSION",
     "ProbePosition",
     "ProbePositionUnit",
+    "ProjectDocument",
+    "ProjectShotSettings",
     "RawSeries",
     "RawSeriesDescriptor",
     "ScanProblem",
@@ -126,4 +139,5 @@ __all__ = [
     "downstream_stages",
     "legacy_current_transform",
     "legacy_sweep_voltage_transform",
+    "relink_project",
 ]
