@@ -33,6 +33,10 @@ from probe_app.domain.models.export import (
     PanelSpec,
     SeriesStyle,
 )
+from probe_app.domain.models.export_source import (
+    ExportSourcePoint,
+    ExportSourceTable,
+)
 from probe_app.domain.models.project import (
     PROJECT_SCHEMA_VERSION,
     ProjectDocument,
@@ -96,6 +100,8 @@ __all__ = [
     "ExportPreset",
     "ExportProvenance",
     "ExportSelection",
+    "ExportSourcePoint",
+    "ExportSourceTable",
     "FigureSpec",
     "FolderCatalog",
     "MethodOutcome",

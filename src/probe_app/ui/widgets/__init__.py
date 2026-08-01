@@ -1,6 +1,9 @@
 from probe_app.ui.widgets.analysis_workspace import AnalysisWorkspace
 from probe_app.ui.widgets.data_browser import DataBrowser
-from probe_app.ui.widgets.export_workspace import ExportWorkspace
+from probe_app.ui.widgets.export_workspace import (
+    ExportWorkspace,
+    ExportWorkspaceRequest,
+)
 from probe_app.ui.widgets.fit_analysis_panel import FitAnalysisPanel
 from probe_app.ui.widgets.metadata_panel import MetadataPanel
 from probe_app.ui.widgets.preprocessing_panel import PreprocessingPanel
@@ -18,6 +21,7 @@ __all__ = [
     "AnalysisWorkspace",
     "DataBrowser",
     "ExportWorkspace",
+    "ExportWorkspaceRequest",
     "FitAnalysisPanel",
     "MetadataPanel",
     "PreprocessingPanel",

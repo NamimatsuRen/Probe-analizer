@@ -32,6 +32,10 @@ from probe_app.application.ports import RoleAssignmentStore, ShotMetadataStore
 from probe_app.application.queries import (
     build_catalog_summary_snapshot,
     build_export_candidates,
+    build_export_manifest,
+    build_iv_export_source,
+    build_position_export_source,
+    build_summary_export_source,
     build_summary_snapshot,
 )
 from probe_app.application.state import AnalysisResultStore, AppState, LoadStatus
@@ -58,6 +62,11 @@ from probe_app.domain.models.audit import (
     AuditTrail,
 )
 from probe_app.domain.models.catalog import FolderCatalog
+from probe_app.domain.models.export import (
+    ExportFigureType,
+    ExportManifest,
+)
+from probe_app.domain.models.export_source import ExportSourceTable
 from probe_app.domain.models.project import (
     ProjectDocument,
     ProjectShotSettings,
@@ -66,13 +75,23 @@ from probe_app.domain.models.project import (
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
 from probe_app.domain.models.shot_metadata import ShotMetadata
-from probe_app.domain.models.summary import SummaryScope, SummaryScopeKind
+from probe_app.domain.models.summary import (
+    SummaryAggregateSnapshot,
+    SummaryScope,
+    SummaryScopeKind,
+    SummarySnapshot,
+)
 from probe_app.domain.models.sweep import Sweep
 from probe_app.domain.services import (
     AssignmentApplyScope,
     propagate_role_assignments,
 )
 from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
+from probe_app.infrastructure.exporting import (
+    ExportBundleExistsError,
+    ExportRenderError,
+    PaperRenderer,
+)
 from probe_app.infrastructure.persistence import (
     ProjectFileError,
     ProjectFileStore,
@@ -83,6 +102,7 @@ from probe_app.ui.widgets import (
     AnalysisWorkspace,
     DataBrowser,
     ExportWorkspace,
+    ExportWorkspaceRequest,
     MetadataPanel,
     RawPlot,
     RoleAssignmentPanel,
@@ -132,6 +152,8 @@ class MainWindow(QMainWindow):
             else QSettingsShotMetadataStore(self._settings)
         )
         self._analysis_catalog = AnalysisCatalog()
+        self._current_summary_snapshot: SummarySnapshot | None = None
+        self._aggregate_summary_snapshot: SummaryAggregateSnapshot | None = None
         self._audit_trail = AuditTrail()
         self._project_file_store = project_file_store or ProjectFileStore()
         self._current_project_path: Path | None = None
@@ -139,6 +161,7 @@ class MainWindow(QMainWindow):
         self._project_shot_settings: dict[str, ProjectShotSettings] = {}
         self._project_records_to_restore: tuple[SweepAnalysisRecord, ...] = ()
         self._pending_project_sweep_id: str | None = None
+        self._paper_renderer = PaperRenderer()
         self._thread_pool = QThreadPool.globalInstance()
         self._scan_generation = 0
         self._load_generation = 0
@@ -216,6 +239,12 @@ class MainWindow(QMainWindow):
         )
         self._summary_workspace.shot_metadata_changed.connect(
             self._shot_metadata_changed
+        )
+        self._export_workspace.preview_requested.connect(
+            self._export_preview_requested
+        )
+        self._export_workspace.render_requested.connect(
+            self._export_render_requested
         )
         self._render_state()
 
@@ -1548,6 +1577,8 @@ class MainWindow(QMainWindow):
         folder = self._state.folder
         shot_id = self._state.role_assignment_shot_id
         if folder is None:
+            self._current_summary_snapshot = None
+            self._aggregate_summary_snapshot = None
             self._summary_workspace.render_snapshot(
                 None,
                 empty_message=self._state.sweep_message,
@@ -1569,12 +1600,14 @@ class MainWindow(QMainWindow):
                     scope_kind,
                 )
             except ValueError as error:
+                self._aggregate_summary_snapshot = None
                 self._summary_workspace.render_aggregate(
                     None,
                     shot_metadata=shot_metadata,
                     empty_message=str(error),
                 )
             else:
+                self._aggregate_summary_snapshot = aggregate
                 self._summary_workspace.render_aggregate(
                     aggregate,
                     shot_metadata=shot_metadata,
@@ -1582,6 +1615,7 @@ class MainWindow(QMainWindow):
             return
 
         if shot_id is None or not self._state.sweeps:
+            self._current_summary_snapshot = None
             self._summary_workspace.render_snapshot(
                 None,
                 empty_message=self._state.sweep_message,
@@ -1618,6 +1652,7 @@ class MainWindow(QMainWindow):
             self._state.analysis_results,
             current_revisions=current_revisions,
         )
+        self._current_summary_snapshot = snapshot
         current_metadata = next(
             (
                 metadata
@@ -1745,6 +1780,153 @@ class MainWindow(QMainWindow):
         self._audit_trail = self._audit_trail.append(
             AuditEvent.create(action, subject_id, details=details)
         )
+
+    def _export_preview_requested(self, request_object: object) -> None:
+        if not isinstance(request_object, ExportWorkspaceRequest):
+            return
+        try:
+            manifest, source = self._prepare_export(request_object)
+            image = self._paper_renderer.render_preview(manifest, source)
+        except (ValueError, ExportRenderError) as error:
+            self._export_workspace.show_error(str(error))
+            return
+        self._export_workspace.show_preview(
+            image,
+            message=f"manifest: {manifest.manifest_id}",
+        )
+
+    def _export_render_requested(self, request_object: object) -> None:
+        if not isinstance(request_object, ExportWorkspaceRequest):
+            return
+        initial = str(
+            self._settings.value(
+                "recentExportFolder",
+                str(self._state.folder or Path.home()),
+                type=str,
+            )
+        )
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "図bundleの保存先を選択",
+            initial,
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not selected:
+            return
+        output = Path(selected)
+        try:
+            manifest, source = self._prepare_export(request_object)
+            result = self._paper_renderer.render_bundle(manifest, source, output)
+        except ExportBundleExistsError as error:
+            names = "\n".join(path.name for path in error.paths)
+            answer = QMessageBox.question(
+                self,
+                "同名の図bundleがあります",
+                f"次のファイルを上書きしますか？\n\n{names}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer is not QMessageBox.StandardButton.Yes:
+                return
+            for path in error.paths:
+                path.unlink(missing_ok=True)
+            try:
+                result = self._paper_renderer.render_bundle(
+                    manifest,
+                    source,
+                    output,
+                )
+            except ExportRenderError as retry_error:
+                self._export_workspace.show_error(str(retry_error))
+                return
+        except (ValueError, ExportRenderError, OSError) as error:
+            self._export_workspace.show_error(str(error))
+            return
+        self._settings.setValue("recentExportFolder", str(output))
+        self._append_audit(
+            AuditAction.EXPORT_CREATE,
+            result.manifest_id,
+            details=(
+                ("artifact_count", str(len(result.artifacts))),
+                ("output", str(output)),
+            ),
+        )
+        self._export_workspace.show_exported(
+            f"Export完了: {len(result.artifacts)} files ｜ "
+            f"manifest {result.manifest_id[:12]}…"
+        )
+
+    def _prepare_export(
+        self,
+        request: ExportWorkspaceRequest,
+    ) -> tuple[ExportManifest, ExportSourceTable]:
+        folder = self._state.folder
+        shot_id = self._state.role_assignment_shot_id
+        if folder is None or shot_id is None:
+            raise ValueError("測定フォルダとshotを選択してください")
+        if not request.filename_stem:
+            raise ValueError("出力ファイル名を入力してください")
+        figure_type = request.figure_type
+        records = self._state.analysis_results.records
+        shot_ids: tuple[str, ...]
+        sweep_ids: tuple[str, ...]
+        if figure_type in (ExportFigureType.IV, ExportFigureType.FIT):
+            selected_ids = request.sweep_ids or (
+                (self._state.selected_sweep_id,)
+                if self._state.selected_sweep_id is not None
+                else ()
+            )
+            sweep = next(
+                (
+                    item
+                    for item in self._state.sweeps
+                    if item.sweep_id in selected_ids
+                ),
+                self._state.selected_sweep,
+            )
+            if sweep is None:
+                raise ValueError("I–Vへ出力するSweepを選択してください")
+            preprocessed = self._preprocessing_panel.result
+            record = self._state.analysis_results.latest_for_sweep(sweep.sweep_id)
+            source = build_iv_export_source(
+                sweep,
+                preprocessed,
+                record,
+                include_fit_evidence=figure_type is ExportFigureType.FIT,
+            )
+            shot_ids = (shot_id,)
+            sweep_ids = (sweep.sweep_id,)
+        elif figure_type is ExportFigureType.POSITION:
+            aggregate = build_catalog_summary_snapshot(
+                str(folder.resolve()),
+                self._analysis_catalog,
+                SummaryScopeKind.POSITION,
+            )
+            source = build_position_export_source(aggregate)
+            shot_ids = aggregate.shot_ids
+            sweep_ids = ()
+        else:
+            snapshot = self._current_summary_snapshot
+            if snapshot is None:
+                raise ValueError("現在のshotのサマリー結果がありません")
+            if not request.sweep_ids:
+                raise ValueError("Exportへ採用するSweepを1つ以上選択してください")
+            source = build_summary_export_source(snapshot, request.sweep_ids)
+            shot_ids = snapshot.scope.shot_ids
+            sweep_ids = request.sweep_ids
+        manifest = build_export_manifest(
+            source,
+            figure_type=figure_type,
+            preset=request.preset,
+            artifacts=request.artifacts,
+            filename_stem=request.filename_stem,
+            folder_key=str(folder.resolve()),
+            shot_ids=shot_ids,
+            sweep_ids=sweep_ids,
+            records=records,
+            code_version=_application_version(),
+        )
+        return manifest, source
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
