@@ -96,11 +96,35 @@ class ProjectFileStore:
             if source.stat().st_size > MAX_PROJECT_BYTES:
                 raise ProjectFileError("projectファイルが100 MiBを超えています")
             payload = json.loads(source.read_text(encoding="utf-8"))
-            return _decode_project(_mapping(payload))
+            return _decode_project(_migrate_project(_mapping(payload)))
         except ProjectFileError:
             raise
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
             raise ProjectFileError(f"projectを読み込めません: {error}") from error
+
+
+def _migrate_project(data: dict[str, Any]) -> dict[str, Any]:
+    """Upgrade known historical schemas without mutating the decoded JSON."""
+
+    migrated = dict(data)
+    schema_version = int(migrated.get("schema_version", 0))
+    if schema_version > PROJECT_SCHEMA_VERSION:
+        raise ProjectFileError(
+            f"未対応のproject schemaです: {schema_version}"
+        )
+    if schema_version == 0:
+        migrated.setdefault("shot_metadata", [])
+        migrated.setdefault("audit_trail", {"events": []})
+        migrated.setdefault("selected_series_id", None)
+        migrated.setdefault("selected_shot_id", None)
+        migrated.setdefault("selected_sweep_id", None)
+        migrated["schema_version"] = 1
+        schema_version = 1
+    if schema_version != PROJECT_SCHEMA_VERSION:
+        raise ProjectFileError(
+            f"未対応のproject schemaです: {schema_version}"
+        )
+    return migrated
 
 
 def _decode_project(data: dict[str, Any]) -> ProjectDocument:

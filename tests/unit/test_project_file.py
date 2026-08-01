@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -80,6 +81,22 @@ def test_project_loader_rejects_future_schema(tmp_path: Path) -> None:
 
     with pytest.raises(ProjectFileError, match="未対応"):
         ProjectFileStore().load(target)
+
+
+def test_project_loader_migrates_schema_zero(tmp_path: Path) -> None:
+    target = tmp_path / "legacy.probe-project.json"
+    payload = asdict(_document(tmp_path / "measurement"))
+    payload["schema_version"] = 0
+    payload.pop("shot_metadata")
+    payload.pop("audit_trail")
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = ProjectFileStore().load(target)
+
+    assert restored.schema_version == 1
+    assert restored.shot_metadata == ()
+    assert restored.audit_trail.events == ()
+    assert restored.analysis_records
 
 
 def test_relink_updates_all_folder_bound_identities(tmp_path: Path) -> None:
