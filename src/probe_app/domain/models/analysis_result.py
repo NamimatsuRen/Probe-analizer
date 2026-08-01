@@ -256,6 +256,8 @@ class SweepAnalysisRecord:
     stages: tuple[StageResult, ...] = ()
     message: str = ""
     exclusion_reason: str = ""
+    status_before_exclusion: AnalysisStatus | None = None
+    message_before_exclusion: str = ""
 
     def __post_init__(self) -> None:
         stage_ids = [stage.stage for stage in self.stages]
@@ -263,6 +265,17 @@ class SweepAnalysisRecord:
             raise ValueError("analysis stages must be unique")
         if self.status is AnalysisStatus.EXCLUDED and not self.exclusion_reason.strip():
             raise ValueError("excluded records require an exclusion reason")
+        if (
+            self.status is AnalysisStatus.EXCLUDED
+            and self.status_before_exclusion is None
+        ):
+            raise ValueError("excluded records require their previous status")
+        if self.status is not AnalysisStatus.EXCLUDED and (
+            self.exclusion_reason
+            or self.status_before_exclusion is not None
+            or self.message_before_exclusion
+        ):
+            raise ValueError("only excluded records can retain exclusion metadata")
 
     @classmethod
     def running(cls, revision: AnalysisInputRevision) -> SweepAnalysisRecord:
@@ -309,31 +322,53 @@ class SweepAnalysisRecord:
             result.mark_stale(reason) if result.stage in affected else result
             for result in self.stages
         )
+        remains_excluded = self.status is AnalysisStatus.EXCLUDED
         return replace(
             self,
             status=(
                 AnalysisStatus.EXCLUDED
-                if self.status is AnalysisStatus.EXCLUDED
+                if remains_excluded
                 else AnalysisStatus.STALE
             ),
             stages=updated,
-            message=reason,
+            message=self.exclusion_reason if remains_excluded else reason,
+            status_before_exclusion=(
+                AnalysisStatus.STALE
+                if remains_excluded
+                else self.status_before_exclusion
+            ),
+            message_before_exclusion=(
+                reason if remains_excluded else self.message_before_exclusion
+            ),
         )
 
     def exclude(self, reason: str) -> SweepAnalysisRecord:
-        if not reason.strip():
+        normalized_reason = reason.strip()
+        if not normalized_reason:
             raise ValueError("exclusion reason cannot be empty")
+        if self.status is AnalysisStatus.EXCLUDED:
+            return replace(
+                self,
+                exclusion_reason=normalized_reason,
+                message=normalized_reason,
+            )
         return replace(
             self,
             status=AnalysisStatus.EXCLUDED,
-            exclusion_reason=reason,
-            message=reason,
+            exclusion_reason=normalized_reason,
+            status_before_exclusion=self.status,
+            message_before_exclusion=self.message,
+            message=normalized_reason,
         )
 
     def restore(self) -> SweepAnalysisRecord:
-        status = (
-            AnalysisStatus.STALE
-            if any(stage.status is AnalysisStatus.STALE for stage in self.stages)
-            else AnalysisStatus.REVIEW
+        if self.status is not AnalysisStatus.EXCLUDED:
+            return self
+        return replace(
+            self,
+            status=self.status_before_exclusion or AnalysisStatus.REVIEW,
+            message=self.message_before_exclusion,
+            exclusion_reason="",
+            status_before_exclusion=None,
+            message_before_exclusion="",
         )
-        return replace(self, status=status, exclusion_reason="")

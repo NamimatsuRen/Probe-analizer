@@ -149,6 +149,70 @@ def test_summary_query_does_not_mutate_result_store() -> None:
     assert store.records is before
 
 
+def test_exclusion_and_restore_immediately_change_summary_denominator() -> None:
+    sweeps = (_sweep(0), _sweep(1))
+    revisions = {
+        sweep.sweep_id: _revision(sweep.sweep_id, generation_id=7)
+        for sweep in sweeps
+    }
+    records = tuple(
+        SweepAnalysisRecord(
+            revision=revisions[sweep.sweep_id],
+            status=AnalysisStatus.VALID,
+            stages=(
+                StageResult(
+                    stage=AnalysisStage.TEMPERATURE,
+                    status=AnalysisStatus.VALID,
+                    methods=(
+                        MethodOutcome(
+                            SummaryMethod.FILTERED_LOG,
+                            AnalysisStatus.VALID,
+                            metrics=(("ti_ev", float(index + 1)),),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        for index, sweep in enumerate(sweeps)
+    )
+    store = AnalysisResultStore()
+    for record in records:
+        store = store.put(record)
+    scope = SummaryScope(
+        kind=SummaryScopeKind.CURRENT_SHOT,
+        folder_key="/measurements",
+        shot_ids=("shot-001",),
+    )
+
+    before = build_summary_snapshot(
+        scope,
+        sweeps,
+        store,
+        current_revisions=revisions,
+    )
+    excluded_store = store.exclude(revisions[sweeps[1].sweep_id], "ノイズ混入")
+    excluded = build_summary_snapshot(
+        scope,
+        sweeps,
+        excluded_store,
+        current_revisions=revisions,
+    )
+    restored = build_summary_snapshot(
+        scope,
+        sweeps,
+        excluded_store.restore(revisions[sweeps[1].sweep_id]),
+        current_revisions=revisions,
+    )
+
+    assert before.aggregate_row_count == 2
+    assert before.metric_statistics(SummaryMetric.TI)[0].mean == 1.5
+    assert excluded.aggregate_row_count == 1
+    assert excluded.metric_statistics(SummaryMetric.TI)[0].mean == 1.0
+    assert len(excluded.plot_points(SummaryMetric.TI, SummaryMethod.FILTERED_LOG)) == 2
+    assert restored.aggregate_row_count == 2
+    assert restored.metric_statistics(SummaryMetric.TI)[0].mean == 1.5
+
+
 def test_summary_statistics_apply_metric_specific_quality_and_ti_cap() -> None:
     scope = SummaryScope(
         kind=SummaryScopeKind.CURRENT_SHOT,

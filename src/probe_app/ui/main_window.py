@@ -166,6 +166,12 @@ class MainWindow(QMainWindow):
         self._summary_workspace.open_analysis_requested.connect(
             self._open_summary_sweep_in_analysis
         )
+        self._summary_workspace.exclusion_requested.connect(
+            self._exclude_summary_sweep
+        )
+        self._summary_workspace.restore_requested.connect(
+            self._restore_summary_sweep
+        )
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -690,6 +696,50 @@ class MainWindow(QMainWindow):
         index = self._workspace_tabs.indexOf(self._analysis_workspace)
         if index >= 0:
             self._workspace_tabs.setCurrentIndex(index)
+
+    def _exclude_summary_sweep(self, sweep_id: str, reason: str) -> None:
+        revision = self._summary_action_revision(sweep_id)
+        if revision is None:
+            return
+        try:
+            self._state = self._state.exclude_analysis(revision, reason)
+        except ValueError as error:
+            self._summary_workspace.show_exclusion_error(str(error))
+            return
+        self._render_analysis_workspace()
+
+    def _restore_summary_sweep(self, sweep_id: str) -> None:
+        revision = self._summary_action_revision(sweep_id)
+        if revision is None:
+            return
+        try:
+            self._state = self._state.restore_analysis(revision)
+        except ValueError as error:
+            self._summary_workspace.show_exclusion_error(str(error))
+            return
+        self._render_analysis_workspace()
+
+    def _summary_action_revision(
+        self,
+        sweep_id: str,
+    ) -> AnalysisInputRevision | None:
+        sweep = next(
+            (item for item in self._state.sweeps if item.sweep_id == sweep_id),
+            None,
+        )
+        if sweep is None:
+            self._summary_workspace.show_exclusion_error(
+                "対象Sweepが現在のshotにありません。"
+            )
+            return None
+        try:
+            return self._build_analysis_revision(
+                sweep,
+                self._preprocessing_panel.settings(),
+            )
+        except ValueError as error:
+            self._summary_workspace.show_exclusion_error(str(error))
+            return None
 
     def _current_time_offset_preview_changed(self, offset_s: float) -> None:
         selected_sweep = self._state.selected_sweep
