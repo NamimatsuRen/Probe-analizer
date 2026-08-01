@@ -66,7 +66,7 @@ def test_level1_window_starts(qtbot: object) -> None:
     assert "解析値を変更・再計算しません" in (  # noqa: SLF001
         window._export_workspace.policy_text  # noqa: SLF001
     )
-    assert not window._export_workspace.renderer_constructed  # noqa: SLF001
+    assert window._export_workspace.renderer_constructed  # noqa: SLF001
     assert window._sweep_iv_plot.parent() is not window._details_tabs  # noqa: SLF001
     assert window._raw_plot.parent() is window._lower_workspace  # noqa: SLF001
     assert window._raw_plot.parent() is not window._details_tabs  # noqa: SLF001

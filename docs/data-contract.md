@@ -263,3 +263,27 @@ Revision、段階・方式ごとの状態、選択候補、手動変更の有無
 無効化は依存関係に沿って行う。SG設定変更は前処理以降を、Phi候補変更は電位決定以降を、
 飽和fit範囲変更は飽和・温度・品質を`stale`にする。folder、role、時間補正、Sweep分割条件の
 変更は全段階を`stale`にする。`excluded`は数値品質の`bad`と区別し、理由を残して復元可能にする。
+
+## Level 7–8の位置・保存・Export契約
+
+位置依存集計へ使用できるのは、利用者が`ShotMetadata.position`へ値と単位を明示したshotだけである。
+内部比較時はmへ正規化するが、元の値・単位・任意labelを保存する。位置がないshotは通常のshot集計には
+残し、位置集計だけから理由付きで外す。位置はfolder名、shot ID、channel IDから推測しない。
+
+portable projectのschema 1は次を保持する。
+
+- code version、保存時刻、元folder identity
+- shot別のrole割当、変換、Sweep分割条件
+- shot位置metadata
+- Raw配列を含まない`AnalysisCatalog`と`SweepAnalysisRecord`
+- 選択series／shot／Sweep
+- append-only監査履歴
+
+書込みは同一directoryの一時ファイルへ全JSONを書き、flush／fsync後に原子的置換する。失敗時は既存
+projectを維持する。schema 0は欠けていた位置metadataと監査履歴を空値として1へ移行する。
+現行より大きいschema versionは部分的に読まず、未対応として停止する。
+
+Export source CSVは1行1点のlong形式で、panel ID、series ID、point ID、x／y、x／y error、
+採用状態、shot／Sweep／methodのidentityを保持する。manifestのcanonical JSONはfigure preset、panel、
+軸、単位、style、artifact、code／project schema／analysis Revision、採用対象を含む。同じ入力から
+同じmanifest IDとCSVを得られるよう、配列とkeyは安定順序で直列化する。

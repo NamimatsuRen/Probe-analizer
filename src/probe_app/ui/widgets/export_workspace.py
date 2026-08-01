@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor
+from dataclasses import dataclass
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSplitter,
     QTreeWidget,
@@ -53,14 +56,29 @@ _PRESET_LABELS = {
     ExportPreset.FOUR_PANEL: "4 panel",
 }
 
+EXPORT_SWEEP_ID_ROLE = int(Qt.ItemDataRole.UserRole)
+
+
+@dataclass(frozen=True, slots=True)
+class ExportWorkspaceRequest:
+    figure_type: ExportFigureType
+    preset: ExportPreset
+    artifacts: tuple[ExportArtifactKind, ...]
+    sweep_ids: tuple[str, ...]
+    filename_stem: str
+
 
 class ExportWorkspace(QWidget):
-    """Read-only Level 8 shell; editing a figure never changes analysis."""
+    """Paper-figure recipe editor; it never changes numerical analysis."""
+
+    preview_requested = Signal(object)
+    render_requested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("exportWorkspace")
         self._snapshot: ExportCandidateSnapshot | None = None
+        self._updating = False
 
         self._figure_type = QComboBox()
         self._figure_type.setObjectName("exportFigureType")
@@ -105,6 +123,7 @@ class ExportWorkspace(QWidget):
         )
         self._candidates.setAlternatingRowColors(True)
         self._candidates.setUniformRowHeights(True)
+        self._candidates.itemChanged.connect(self._candidate_changed)
         candidate_header = self._candidates.header()
         for column in (0, 1, 3, 4, 5):
             candidate_header.setSectionResizeMode(
@@ -114,11 +133,7 @@ class ExportWorkspace(QWidget):
         candidate_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         candidate_header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
 
-        self._preview = QLabel(
-            "<h3>論文図プレビュー</h3>"
-            "<p>図テンプレートと対象結果を確定する画面です。</p>"
-            "<p>SVG / PDF / PNGの描画はLevel 8 rendererで追加します。</p>"
-        )
+        self._preview = QLabel("論文図プレビューを準備しています")
         self._preview.setObjectName("exportPreviewPlaceholder")
         self._preview.setWordWrap(True)
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -134,8 +149,16 @@ class ExportWorkspace(QWidget):
             checkbox = QCheckBox(_artifact_label(artifact))
             checkbox.setObjectName(f"exportArtifact_{artifact.name.lower()}")
             checkbox.setChecked(True)
+            if artifact is ExportArtifactKind.MANIFEST:
+                checkbox.setEnabled(False)
             self._artifact_checks[artifact] = checkbox
             output_layout.addWidget(checkbox)
+
+        self._filename = QLineEdit("probe-analysis-figure")
+        self._filename.setObjectName("exportFilenameStem")
+        self._filename.setPlaceholderText("ファイル名（拡張子なし）")
+        output_layout.addWidget(QLabel("出力ファイル名"))
+        output_layout.addWidget(self._filename)
 
         self._provenance = QLabel(
             "manifestへ入力identity、Revision、解析設定、algorithm/schema/code version、"
@@ -145,12 +168,14 @@ class ExportWorkspace(QWidget):
         self._provenance.setWordWrap(True)
         output_layout.addWidget(self._provenance)
 
-        self._render_button = QPushButton("図bundleを作成（Level 8）")
+        self._preview_button = QPushButton("プレビューを更新")
+        self._preview_button.setObjectName("exportPreviewButton")
+        self._preview_button.setEnabled(False)
+        output_layout.addWidget(self._preview_button)
+
+        self._render_button = QPushButton("図bundleを作成")
         self._render_button.setObjectName("exportRenderButton")
         self._render_button.setEnabled(False)
-        self._render_button.setToolTip(
-            "このIssueでは仕様と安全な選択境界を固定し、実描画はLevel 8で追加します"
-        )
         output_layout.addWidget(self._render_button)
         output_layout.addStretch(1)
 
@@ -191,6 +216,13 @@ class ExportWorkspace(QWidget):
         layout.addWidget(body, 1)
         layout.addWidget(self._policy)
 
+        self._figure_type.currentIndexChanged.connect(self._recipe_changed)
+        self._preset.currentIndexChanged.connect(self._recipe_changed)
+        self._preview_button.clicked.connect(self._request_preview)
+        self._render_button.clicked.connect(self._request_render)
+        for checkbox in self._artifact_checks.values():
+            checkbox.toggled.connect(self._recipe_changed)
+
         self.render_candidates(None)
 
     @property
@@ -222,9 +254,55 @@ class ExportWorkspace(QWidget):
 
     @property
     def renderer_constructed(self) -> bool:
-        """The heavy renderer stays absent until the Level 8 implementation."""
+        return True
 
-        return False
+    @property
+    def request(self) -> ExportWorkspaceRequest:
+        figure_type = ExportFigureType(str(self._figure_type.currentData()))
+        preset = ExportPreset(str(self._preset.currentData()))
+        artifacts = tuple(
+            artifact
+            for artifact, checkbox in self._artifact_checks.items()
+            if checkbox.isChecked()
+        )
+        sweep_ids = tuple(
+            str(item.data(0, EXPORT_SWEEP_ID_ROLE))
+            for item in (
+                self._candidates.topLevelItem(index)
+                for index in range(self._candidates.topLevelItemCount())
+            )
+            if item is not None
+            and item.checkState(0) is Qt.CheckState.Checked
+        )
+        return ExportWorkspaceRequest(
+            figure_type=figure_type,
+            preset=preset,
+            artifacts=artifacts,
+            sweep_ids=sweep_ids,
+            filename_stem=self._filename.text().strip(),
+        )
+
+    def show_preview(self, image: QImage, message: str = "") -> None:
+        pixmap = QPixmap.fromImage(image)
+        self._preview.setPixmap(
+            pixmap.scaled(
+                self._preview.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        self._preview.setToolTip(message)
+
+    def show_error(self, message: str) -> None:
+        self._preview.setPixmap(QPixmap())
+        self._preview.setText(message)
+        self._preview.setStyleSheet(
+            "background: #fff; color: #b42318; border: 1px solid #fda29b;"
+            " padding: 20px;"
+        )
+
+    def show_exported(self, message: str) -> None:
+        self._scope.setText(message)
 
     def render_candidates(
         self,
@@ -233,10 +311,14 @@ class ExportWorkspace(QWidget):
         empty_message: str = "解析結果を確定すると候補を選べます",
     ) -> None:
         self._snapshot = snapshot
+        self._updating = True
         self._candidates.clear()
         if snapshot is None:
             self._scope.setText(f"Export範囲: shot未選択 ｜ {empty_message}")
             self._counts.setText("初期選択 0 / 0 ｜ 注意 0")
+            self._preview_button.setEnabled(False)
+            self._render_button.setEnabled(False)
+            self._updating = False
             return
 
         shots = "、".join(snapshot.shot_ids)
@@ -249,6 +331,47 @@ class ExportWorkspace(QWidget):
         )
         for candidate in snapshot.candidates:
             self._candidates.addTopLevelItem(_candidate_item(candidate))
+        self._filename.setText(f"{snapshot.shot_ids[0]}-analysis")
+        self._preview_button.setEnabled(bool(snapshot.candidates))
+        self._render_button.setEnabled(bool(snapshot.candidates))
+        self._updating = False
+        if snapshot.candidates:
+            self._preview.setPixmap(QPixmap())
+            self._preview.setText(
+                "設定を確認して「プレビューを更新」を押してください"
+            )
+
+    def _candidate_changed(self, _item: QTreeWidgetItem, _column: int) -> None:
+        if self._updating or self._snapshot is None:
+            return
+        self._counts.setText(
+            f"選択 {self.checked_candidate_count:,} / "
+            f"{len(self._snapshot.candidates):,} ｜ "
+            f"注意 {self._snapshot.warning_count:,}"
+        )
+        self._preview.setPixmap(QPixmap())
+        self._preview.setText("設定を確認して「プレビューを更新」を押してください")
+
+    def _recipe_changed(self, _value: object = None) -> None:
+        if not self._updating and self._snapshot is not None:
+            self._preview.setPixmap(QPixmap())
+            self._preview.setText("設定が変わりました。プレビューを更新してください")
+
+    def _request_preview(self) -> None:
+        try:
+            request = self.request
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+        self.preview_requested.emit(request)
+
+    def _request_render(self) -> None:
+        try:
+            request = self.request
+        except ValueError as error:
+            self.show_error(str(error))
+            return
+        self.render_requested.emit(request)
 
 
 def _candidate_item(candidate: ExportCandidate) -> QTreeWidgetItem:
@@ -274,6 +397,7 @@ def _candidate_item(candidate: ExportCandidate) -> QTreeWidgetItem:
         ),
     )
     item.setForeground(3, QBrush(QColor(color)))
+    item.setData(0, EXPORT_SWEEP_ID_ROLE, candidate.sweep_id)
     return item
 
 

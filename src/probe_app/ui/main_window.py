@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import replace
+from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt, QThreadPool, QTimer
@@ -26,14 +28,23 @@ from probe_app.analysis import (
     analyze_preprocessed,
     preprocess_sweep,
 )
-from probe_app.application.ports import RoleAssignmentStore
+from probe_app.application.ports import RoleAssignmentStore, ShotMetadataStore
 from probe_app.application.queries import (
+    build_catalog_summary_snapshot,
     build_export_candidates,
+    build_export_manifest,
+    build_iv_export_source,
+    build_position_export_source,
+    build_summary_export_source,
     build_summary_snapshot,
 )
-from probe_app.application.state import AppState, LoadStatus
+from probe_app.application.state import AnalysisResultStore, AppState, LoadStatus
 from probe_app.application.use_cases import SweepSplitRequest, SweepSplitResult
 from probe_app.domain.errors import RoleAssignmentStoreError
+from probe_app.domain.models.analysis_catalog import (
+    AnalysisCatalog,
+    ShotAnalysisSnapshot,
+)
 from probe_app.domain.models.analysis_result import (
     AnalysisInputRevision,
     AnalysisStage,
@@ -45,20 +56,53 @@ from probe_app.domain.models.analysis_result import (
     SweepAnalysisRecord,
     SweepSplitRevision,
 )
+from probe_app.domain.models.audit import (
+    AuditAction,
+    AuditEvent,
+    AuditTrail,
+)
 from probe_app.domain.models.catalog import FolderCatalog
+from probe_app.domain.models.export import (
+    ExportFigureType,
+    ExportManifest,
+)
+from probe_app.domain.models.export_source import ExportSourceTable
+from probe_app.domain.models.project import (
+    ProjectDocument,
+    ProjectShotSettings,
+    relink_project,
+)
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import SeriesRole, SeriesRoleAssignments
-from probe_app.domain.models.summary import SummaryScope, SummaryScopeKind
+from probe_app.domain.models.shot_metadata import ShotMetadata
+from probe_app.domain.models.summary import (
+    SummaryAggregateSnapshot,
+    SummaryScope,
+    SummaryScopeKind,
+    SummarySnapshot,
+)
 from probe_app.domain.models.sweep import Sweep
 from probe_app.domain.services import (
     AssignmentApplyScope,
     propagate_role_assignments,
 )
-from probe_app.infrastructure.persistence import QSettingsRoleAssignmentStore
+from probe_app.domain.services.sweep_splitter import LegacySweepSplitParameters
+from probe_app.infrastructure.exporting import (
+    ExportBundleExistsError,
+    ExportRenderError,
+    PaperRenderer,
+)
+from probe_app.infrastructure.persistence import (
+    ProjectFileError,
+    ProjectFileStore,
+    QSettingsRoleAssignmentStore,
+    QSettingsShotMetadataStore,
+)
 from probe_app.ui.widgets import (
     AnalysisWorkspace,
     DataBrowser,
     ExportWorkspace,
+    ExportWorkspaceRequest,
     MetadataPanel,
     RawPlot,
     RoleAssignmentPanel,
@@ -86,6 +130,8 @@ class MainWindow(QMainWindow):
         *,
         settings: QSettings | None = None,
         assignment_store: RoleAssignmentStore | None = None,
+        shot_metadata_store: ShotMetadataStore | None = None,
+        project_file_store: ProjectFileStore | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Probe Analizer — Rawデータブラウザ")
@@ -100,6 +146,22 @@ class MainWindow(QMainWindow):
             if assignment_store is not None
             else QSettingsRoleAssignmentStore(self._settings)
         )
+        self._shot_metadata_store = (
+            shot_metadata_store
+            if shot_metadata_store is not None
+            else QSettingsShotMetadataStore(self._settings)
+        )
+        self._analysis_catalog = AnalysisCatalog()
+        self._current_summary_snapshot: SummarySnapshot | None = None
+        self._aggregate_summary_snapshot: SummaryAggregateSnapshot | None = None
+        self._audit_trail = AuditTrail()
+        self._project_file_store = project_file_store or ProjectFileStore()
+        self._current_project_path: Path | None = None
+        self._pending_project: ProjectDocument | None = None
+        self._project_shot_settings: dict[str, ProjectShotSettings] = {}
+        self._project_records_to_restore: tuple[SweepAnalysisRecord, ...] = ()
+        self._pending_project_sweep_id: str | None = None
+        self._paper_renderer = PaperRenderer()
         self._thread_pool = QThreadPool.globalInstance()
         self._scan_generation = 0
         self._load_generation = 0
@@ -172,6 +234,18 @@ class MainWindow(QMainWindow):
         self._summary_workspace.restore_requested.connect(
             self._restore_summary_sweep
         )
+        self._summary_workspace.scope_changed.connect(
+            self._summary_scope_changed
+        )
+        self._summary_workspace.shot_metadata_changed.connect(
+            self._shot_metadata_changed
+        )
+        self._export_workspace.preview_requested.connect(
+            self._export_preview_requested
+        )
+        self._export_workspace.render_requested.connect(
+            self._export_render_requested
+        )
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -237,6 +311,20 @@ class MainWindow(QMainWindow):
         self._open_action.triggered.connect(self._choose_folder)
         toolbar.addAction(self._open_action)
 
+        self._open_project_action = QAction("プロジェクトを開く", self)
+        self._open_project_action.triggered.connect(self._choose_project)
+        toolbar.addAction(self._open_project_action)
+
+        self._save_project_action = QAction("プロジェクトを保存", self)
+        self._save_project_action.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_project_action.triggered.connect(self._save_project)
+        toolbar.addAction(self._save_project_action)
+
+        self._save_project_as_action = QAction("名前を付けて保存", self)
+        self._save_project_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self._save_project_as_action.triggered.connect(self._save_project_as)
+        toolbar.addAction(self._save_project_as_action)
+
         self._reload_action = QAction("再読込", self)
         self._reload_action.setShortcut(QKeySequence.StandardKey.Refresh)
         self._reload_action.triggered.connect(self._reload_folder)
@@ -273,13 +361,101 @@ class MainWindow(QMainWindow):
             QFileDialog.Option.ShowDirsOnly,
         )
         if selected:
+            self._current_project_path = None
+            self._pending_project = None
+            self._project_shot_settings.clear()
+            self._project_records_to_restore = ()
+            self._pending_project_sweep_id = None
+            self._audit_trail = AuditTrail()
             self.open_folder(Path(selected))
+
+    def _choose_project(self) -> None:
+        initial = str(
+            self._current_project_path
+            or self._settings.value("recentProject", str(Path.home()), type=str)
+        )
+        selected, _ = QFileDialog.getOpenFileName(
+            self,
+            "解析プロジェクトを開く",
+            initial,
+            "Probe project (*.probe-project.json);;JSON (*.json)",
+        )
+        if not selected:
+            return
+        path = Path(selected)
+        try:
+            document = self._project_file_store.load(path)
+        except ProjectFileError as error:
+            QMessageBox.warning(self, "プロジェクトを開けません", str(error))
+            return
+        folder = Path(document.folder_key)
+        if not folder.is_dir():
+            relinked = QFileDialog.getExistingDirectory(
+                self,
+                "測定フォルダを再指定",
+                str(folder.parent if folder.parent.exists() else Path.home()),
+                QFileDialog.Option.ShowDirsOnly,
+            )
+            if not relinked:
+                return
+            document = relink_project(document, str(Path(relinked).resolve()))
+            folder = Path(document.folder_key)
+        self._pending_project = document
+        self._current_project_path = path
+        self._settings.setValue("recentProject", str(path))
+        self.open_folder(folder)
+
+    def _save_project(self) -> None:
+        if self._current_project_path is None:
+            self._save_project_as()
+            return
+        self._write_project(self._current_project_path)
+
+    def _save_project_as(self) -> None:
+        folder = self._state.folder
+        if folder is None:
+            QMessageBox.information(
+                self,
+                "保存する解析がありません",
+                "測定フォルダを開いてからプロジェクトを保存してください。",
+            )
+            return
+        initial = self._current_project_path or (
+            folder.parent / f"{folder.name}.probe-project.json"
+        )
+        selected, _ = QFileDialog.getSaveFileName(
+            self,
+            "解析プロジェクトを保存",
+            str(initial),
+            "Probe project (*.probe-project.json)",
+        )
+        if not selected:
+            return
+        path = Path(selected)
+        if not path.name.endswith(".probe-project.json"):
+            path = path.with_name(f"{path.name}.probe-project.json")
+        self._write_project(path)
+
+    def _write_project(self, path: Path) -> None:
+        try:
+            document = self._build_project_document(path)
+            self._project_file_store.save(path, document)
+        except (ProjectFileError, RoleAssignmentStoreError, ValueError) as error:
+            QMessageBox.warning(self, "プロジェクトを保存できません", str(error))
+            return
+        self._current_project_path = path
+        self._settings.setValue("recentProject", str(path))
+        self.statusBar().showMessage(f"プロジェクトを保存しました: {path}", 7000)
 
     def _reload_folder(self) -> None:
         if self._state.folder is not None:
             self.open_folder(self._state.folder)
 
     def open_folder(self, folder: Path) -> None:
+        folder_key = str(folder.resolve())
+        self._analysis_catalog = self._analysis_catalog.clear_other_folders(
+            folder_key
+        )
         self._cancel_tasks()
         self._scan_generation += 1
         self._load_generation += 1
@@ -311,7 +487,69 @@ class MainWindow(QMainWindow):
             self._role_panel.clear_context()
             self._raw_plot.clear_plot("対応する測定データがありません")
             return
-        self._data_browser.set_catalog(catalog_object)
+        selected_series_id: str | None = None
+        if self._pending_project is not None:
+            selected_series_id = self._apply_pending_project(
+                self._pending_project,
+                catalog_object,
+            )
+            self._pending_project = None
+        self._data_browser.set_catalog(
+            catalog_object,
+            selected_series_id=selected_series_id,
+        )
+
+    def _apply_pending_project(
+        self,
+        document: ProjectDocument,
+        catalog: FolderCatalog,
+    ) -> str | None:
+        folder = catalog.root
+        folder_key = str(folder.resolve())
+        if document.folder_key != folder_key:
+            document = relink_project(document, folder_key)
+        known_shots = set(catalog.shots)
+        self._project_shot_settings = {
+            item.shot_id: item
+            for item in document.shot_settings
+            if item.shot_id in known_shots
+        }
+        for settings in self._project_shot_settings.values():
+            try:
+                self._assignment_store.save(
+                    folder,
+                    settings.shot_id,
+                    settings.assignments,
+                )
+            except RoleAssignmentStoreError as error:
+                LOGGER.warning("Project role settings restore failed: %s", error)
+        for metadata in document.shot_metadata:
+            if metadata.shot_id in known_shots:
+                try:
+                    self._shot_metadata_store.save(folder, metadata)
+                except (OSError, ValueError) as error:
+                    LOGGER.warning("Project metadata restore failed: %s", error)
+        self._analysis_catalog = document.analysis_catalog.clear_other_folders(
+            folder_key
+        )
+        self._audit_trail = document.audit_trail
+        self._append_audit(
+            AuditAction.PROJECT_LOAD,
+            str(self._current_project_path or "project"),
+            details=(("code_version", document.code_version),),
+        )
+        self._project_records_to_restore = document.analysis_records
+        self._pending_project_sweep_id = document.selected_sweep_id
+        self._state = replace(
+            self._state,
+            analysis_results=AnalysisResultStore(document.analysis_records),
+        )
+        return (
+            document.selected_series_id
+            if document.selected_series_id is not None
+            and catalog.find(document.selected_series_id) is not None
+            else None
+        )
 
     def _folder_failed(self, generation: int, message: str, details: str) -> None:
         if generation != self._scan_generation:
@@ -399,6 +637,19 @@ class MainWindow(QMainWindow):
 
         self._state = self._state.set_role_assignments(shot_id, assignments)
         self._role_panel.set_context(shot_id, descriptors, assignments)
+        project_settings = self._project_shot_settings.get(shot_id)
+        if project_settings is not None and project_settings.split is not None:
+            split = project_settings.split
+            self._sweep_panel.set_parameters(
+                LegacySweepSplitParameters(
+                    points_per_cycle=split.points_per_cycle,
+                    sample_start=split.sample_start,
+                    sample_stop=split.sample_stop,
+                )
+            )
+            self._sweep_panel.set_current_time_offset_s(
+                split.current_time_offset_s
+            )
         self._render_sweep_panel()
         if warning:
             self._role_panel.set_persistence_status(warning, error=True)
@@ -615,6 +866,23 @@ class MainWindow(QMainWindow):
             interpolated_current=result_object.interpolated_current,
             exclusions=result_object.exclusions,
         )
+        if self._project_records_to_restore:
+            self._state = replace(
+                self._state,
+                analysis_results=AnalysisResultStore(
+                    self._project_records_to_restore
+                ),
+            )
+            self._project_records_to_restore = ()
+        if self._pending_project_sweep_id is not None:
+            if any(
+                sweep.sweep_id == self._pending_project_sweep_id
+                for sweep in self._state.sweeps
+            ):
+                self._state = self._state.select_sweep(
+                    self._pending_project_sweep_id
+                )
+            self._pending_project_sweep_id = None
         interpolation = (
             "currentをSweep電圧の時間軸へ補間しました"
             if result_object.interpolated_current
@@ -706,6 +974,11 @@ class MainWindow(QMainWindow):
         except ValueError as error:
             self._summary_workspace.show_exclusion_error(str(error))
             return
+        self._append_audit(
+            AuditAction.EXCLUDE,
+            sweep_id,
+            details=(("reason", reason.strip()), ("revision", revision.cache_key)),
+        )
         self._render_analysis_workspace()
 
     def _restore_summary_sweep(self, sweep_id: str) -> None:
@@ -717,6 +990,11 @@ class MainWindow(QMainWindow):
         except ValueError as error:
             self._summary_workspace.show_exclusion_error(str(error))
             return
+        self._append_audit(
+            AuditAction.RESTORE,
+            sweep_id,
+            details=(("revision", revision.cache_key),),
+        )
         self._render_analysis_workspace()
 
     def _summary_action_revision(
@@ -1209,6 +1487,13 @@ class MainWindow(QMainWindow):
             or self._auto_sweep_timer.isActive()
         )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)
+        self._open_project_action.setEnabled(not busy)
+        self._save_project_action.setEnabled(
+            self._state.folder is not None and not busy
+        )
+        self._save_project_as_action.setEnabled(
+            self._state.folder is not None and not busy
+        )
         self._cancel_action.setEnabled(busy)
         self._previous_sweep_action.setEnabled(
             not busy and self._sweep_browser.can_select_previous
@@ -1291,10 +1576,50 @@ class MainWindow(QMainWindow):
     def _render_summary_workspace(self) -> None:
         folder = self._state.folder
         shot_id = self._state.role_assignment_shot_id
-        if folder is None or shot_id is None or not self._state.sweeps:
+        if folder is None:
+            self._current_summary_snapshot = None
+            self._aggregate_summary_snapshot = None
             self._summary_workspace.render_snapshot(
                 None,
                 empty_message=self._state.sweep_message,
+            )
+            self._export_workspace.render_candidates(
+                None,
+                empty_message=self._state.sweep_message,
+            )
+            return
+
+        folder_key = str(folder.resolve())
+        shot_metadata = self._summary_shot_metadata(folder)
+        scope_kind = self._summary_workspace.selected_scope_kind
+        if scope_kind is not SummaryScopeKind.CURRENT_SHOT:
+            try:
+                aggregate = build_catalog_summary_snapshot(
+                    folder_key,
+                    self._analysis_catalog,
+                    scope_kind,
+                )
+            except ValueError as error:
+                self._aggregate_summary_snapshot = None
+                self._summary_workspace.render_aggregate(
+                    None,
+                    shot_metadata=shot_metadata,
+                    empty_message=str(error),
+                )
+            else:
+                self._aggregate_summary_snapshot = aggregate
+                self._summary_workspace.render_aggregate(
+                    aggregate,
+                    shot_metadata=shot_metadata,
+                )
+            return
+
+        if shot_id is None or not self._state.sweeps:
+            self._current_summary_snapshot = None
+            self._summary_workspace.render_snapshot(
+                None,
+                empty_message=self._state.sweep_message,
+                shot_metadata=shot_metadata,
             )
             self._export_workspace.render_candidates(
                 None,
@@ -1319,7 +1644,7 @@ class MainWindow(QMainWindow):
         snapshot = build_summary_snapshot(
             SummaryScope(
                 kind=SummaryScopeKind.CURRENT_SHOT,
-                folder_key=str(folder.resolve()),
+                folder_key=folder_key,
                 shot_ids=(shot_id,),
                 current_revision_only=True,
             ),
@@ -1327,16 +1652,289 @@ class MainWindow(QMainWindow):
             self._state.analysis_results,
             current_revisions=current_revisions,
         )
+        self._current_summary_snapshot = snapshot
+        current_metadata = next(
+            (
+                metadata
+                for metadata in shot_metadata
+                if metadata.shot_id == shot_id
+            ),
+            ShotMetadata(folder_key=folder_key, shot_id=shot_id),
+        )
+        self._analysis_catalog = self._analysis_catalog.put(
+            ShotAnalysisSnapshot.capture(snapshot, current_metadata)
+        )
         self._summary_workspace.render_snapshot(
             snapshot,
             selected_sweep_id=self._state.selected_sweep_id,
             empty_message=self._state.sweep_message,
+            shot_metadata=shot_metadata,
         )
         self._export_workspace.render_candidates(
             build_export_candidates(snapshot),
             empty_message=self._state.sweep_message,
         )
 
+    def _summary_scope_changed(self, _scope: object) -> None:
+        self._render_summary_workspace()
+
+    def _summary_shot_metadata(
+        self,
+        folder: Path,
+    ) -> tuple[ShotMetadata, ...]:
+        catalog = self._state.catalog
+        if catalog is None:
+            return ()
+        return tuple(
+            self._shot_metadata_store.load(folder, shot_id)
+            for shot_id in catalog.shots
+        )
+
+    def _shot_metadata_changed(self, metadata_object: object) -> None:
+        folder = self._state.folder
+        if folder is None or not isinstance(metadata_object, ShotMetadata):
+            return
+        folder_key = str(folder.resolve())
+        if metadata_object.folder_key != folder_key:
+            self._summary_workspace.show_metadata_error(
+                "選択中フォルダとshot metadataが一致しません"
+            )
+            return
+        try:
+            self._shot_metadata_store.save(folder, metadata_object)
+        except (OSError, ValueError) as error:
+            LOGGER.warning("Shot metadata save failed: %s", error)
+            self._summary_workspace.show_metadata_error(
+                f"位置metadataを保存できませんでした: {error}"
+            )
+            return
+        self._analysis_catalog = self._analysis_catalog.update_metadata(
+            metadata_object
+        )
+        self._append_audit(
+            AuditAction.METADATA_UPDATE,
+            metadata_object.shot_id,
+            details=(
+                (
+                    "position_mm",
+                    (
+                        "unset"
+                        if metadata_object.position is None
+                        else f"{metadata_object.position.millimeters:.12g}"
+                    ),
+                ),
+            ),
+        )
+        self._render_summary_workspace()
+        self._summary_workspace.show_metadata_saved()
+
+    def _build_project_document(self, path: Path) -> ProjectDocument:
+        folder = self._state.folder
+        catalog = self._state.catalog
+        if folder is None or catalog is None:
+            raise ValueError("測定フォルダを開いてから保存してください")
+        folder_key = str(folder.resolve())
+        current_shot = self._state.role_assignment_shot_id
+        parameters = self._sweep_panel.parameters()
+        shot_settings: list[ProjectShotSettings] = []
+        for shot_id in catalog.shots:
+            assignments = self._assignment_store.load(folder, shot_id)
+            existing = self._project_shot_settings.get(shot_id)
+            split = existing.split if existing is not None else None
+            if shot_id == current_shot:
+                split = SweepSplitRevision(
+                    points_per_cycle=parameters.points_per_cycle,
+                    sample_start=parameters.sample_start,
+                    sample_stop=parameters.sample_stop,
+                    current_time_offset_s=(
+                        self._sweep_panel.current_time_offset_s()
+                    ),
+                )
+            shot_settings.append(ProjectShotSettings(shot_id, assignments, split))
+        self._append_audit(
+            AuditAction.PROJECT_SAVE,
+            str(path.resolve(strict=False)),
+            details=(("record_count", str(len(self._state.analysis_results.records))),),
+        )
+        return ProjectDocument(
+            code_version=_application_version(),
+            saved_at_utc=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            folder_key=folder_key,
+            shot_settings=tuple(shot_settings),
+            shot_metadata=self._summary_shot_metadata(folder),
+            analysis_catalog=self._analysis_catalog.clear_other_folders(folder_key),
+            analysis_records=self._state.analysis_results.records,
+            audit_trail=self._audit_trail,
+            selected_series_id=self._state.selected_series_id,
+            selected_shot_id=current_shot,
+            selected_sweep_id=self._state.selected_sweep_id,
+        )
+
+    def _append_audit(
+        self,
+        action: AuditAction,
+        subject_id: str,
+        *,
+        details: tuple[tuple[str, str], ...] = (),
+    ) -> None:
+        self._audit_trail = self._audit_trail.append(
+            AuditEvent.create(action, subject_id, details=details)
+        )
+
+    def _export_preview_requested(self, request_object: object) -> None:
+        if not isinstance(request_object, ExportWorkspaceRequest):
+            return
+        try:
+            manifest, source = self._prepare_export(request_object)
+            image = self._paper_renderer.render_preview(manifest, source)
+        except (ValueError, ExportRenderError) as error:
+            self._export_workspace.show_error(str(error))
+            return
+        self._export_workspace.show_preview(
+            image,
+            message=f"manifest: {manifest.manifest_id}",
+        )
+
+    def _export_render_requested(self, request_object: object) -> None:
+        if not isinstance(request_object, ExportWorkspaceRequest):
+            return
+        initial = str(
+            self._settings.value(
+                "recentExportFolder",
+                str(self._state.folder or Path.home()),
+                type=str,
+            )
+        )
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "図bundleの保存先を選択",
+            initial,
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not selected:
+            return
+        output = Path(selected)
+        try:
+            manifest, source = self._prepare_export(request_object)
+            result = self._paper_renderer.render_bundle(manifest, source, output)
+        except ExportBundleExistsError as error:
+            names = "\n".join(path.name for path in error.paths)
+            answer = QMessageBox.question(
+                self,
+                "同名の図bundleがあります",
+                f"次のファイルを上書きしますか？\n\n{names}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer is not QMessageBox.StandardButton.Yes:
+                return
+            for path in error.paths:
+                path.unlink(missing_ok=True)
+            try:
+                result = self._paper_renderer.render_bundle(
+                    manifest,
+                    source,
+                    output,
+                )
+            except ExportRenderError as retry_error:
+                self._export_workspace.show_error(str(retry_error))
+                return
+        except (ValueError, ExportRenderError, OSError) as error:
+            self._export_workspace.show_error(str(error))
+            return
+        self._settings.setValue("recentExportFolder", str(output))
+        self._append_audit(
+            AuditAction.EXPORT_CREATE,
+            result.manifest_id,
+            details=(
+                ("artifact_count", str(len(result.artifacts))),
+                ("output", str(output)),
+            ),
+        )
+        self._export_workspace.show_exported(
+            f"Export完了: {len(result.artifacts)} files ｜ "
+            f"manifest {result.manifest_id[:12]}…"
+        )
+
+    def _prepare_export(
+        self,
+        request: ExportWorkspaceRequest,
+    ) -> tuple[ExportManifest, ExportSourceTable]:
+        folder = self._state.folder
+        shot_id = self._state.role_assignment_shot_id
+        if folder is None or shot_id is None:
+            raise ValueError("測定フォルダとshotを選択してください")
+        if not request.filename_stem:
+            raise ValueError("出力ファイル名を入力してください")
+        figure_type = request.figure_type
+        records = self._state.analysis_results.records
+        shot_ids: tuple[str, ...]
+        sweep_ids: tuple[str, ...]
+        if figure_type in (ExportFigureType.IV, ExportFigureType.FIT):
+            selected_ids = request.sweep_ids or (
+                (self._state.selected_sweep_id,)
+                if self._state.selected_sweep_id is not None
+                else ()
+            )
+            sweep = next(
+                (
+                    item
+                    for item in self._state.sweeps
+                    if item.sweep_id in selected_ids
+                ),
+                self._state.selected_sweep,
+            )
+            if sweep is None:
+                raise ValueError("I–Vへ出力するSweepを選択してください")
+            preprocessed = self._preprocessing_panel.result
+            record = self._state.analysis_results.latest_for_sweep(sweep.sweep_id)
+            source = build_iv_export_source(
+                sweep,
+                preprocessed,
+                record,
+                include_fit_evidence=figure_type is ExportFigureType.FIT,
+            )
+            shot_ids = (shot_id,)
+            sweep_ids = (sweep.sweep_id,)
+        elif figure_type is ExportFigureType.POSITION:
+            aggregate = build_catalog_summary_snapshot(
+                str(folder.resolve()),
+                self._analysis_catalog,
+                SummaryScopeKind.POSITION,
+            )
+            source = build_position_export_source(aggregate)
+            shot_ids = aggregate.shot_ids
+            sweep_ids = ()
+        else:
+            snapshot = self._current_summary_snapshot
+            if snapshot is None:
+                raise ValueError("現在のshotのサマリー結果がありません")
+            if not request.sweep_ids:
+                raise ValueError("Exportへ採用するSweepを1つ以上選択してください")
+            source = build_summary_export_source(snapshot, request.sweep_ids)
+            shot_ids = snapshot.scope.shot_ids
+            sweep_ids = request.sweep_ids
+        manifest = build_export_manifest(
+            source,
+            figure_type=figure_type,
+            preset=request.preset,
+            artifacts=request.artifacts,
+            filename_stem=request.filename_stem,
+            folder_key=str(folder.resolve()),
+            shot_ids=shot_ids,
+            sweep_ids=sweep_ids,
+            records=records,
+            code_version=_application_version(),
+        )
+        return manifest, source
+
     def closeEvent(self, event: QCloseEvent) -> None:
         self._cancel_tasks()
         super().closeEvent(event)
+
+
+def _application_version() -> str:
+    try:
+        return version("probe-analizer")
+    except PackageNotFoundError:
+        return "development"

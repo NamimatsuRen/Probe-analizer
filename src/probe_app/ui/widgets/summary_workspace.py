@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -21,14 +22,19 @@ from PySide6.QtWidgets import (
 )
 
 from probe_app.domain.models.analysis_result import AnalysisStatus
+from probe_app.domain.models.shot_metadata import ShotMetadata
 from probe_app.domain.models.summary import (
     SUMMARY_METHOD_ORDER,
+    SummaryAggregateSnapshot,
     SummaryMethod,
     SummaryMetric,
     SummaryRow,
+    SummaryScopeKind,
     SummarySnapshot,
 )
 from probe_app.domain.models.sweep import SweepDirection
+from probe_app.ui.widgets.shot_metadata_editor import ShotMetadataEditor
+from probe_app.ui.widgets.summary_aggregate_plot import SummaryAggregatePlot
 from probe_app.ui.widgets.summary_trend_plot import SummaryTrendPlot
 
 SUMMARY_SWEEP_ID_ROLE = int(Qt.ItemDataRole.UserRole)
@@ -59,6 +65,8 @@ class SummaryWorkspace(QWidget):
     open_analysis_requested = Signal(str)
     exclusion_requested = Signal(str, str)
     restore_requested = Signal(str)
+    scope_changed = Signal(object)
+    shot_metadata_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -68,11 +76,10 @@ class SummaryWorkspace(QWidget):
 
         self._scope = QComboBox()
         self._scope.setObjectName("summaryScope")
-        self._scope.addItem("現在のshot")
-        self._scope.setEnabled(False)
-        self._scope.setToolTip(
-            "複数shot・位置集計は位置metadata契約の確定後に追加します"
-        )
+        self._scope.addItem("現在のshot", SummaryScopeKind.CURRENT_SHOT)
+        self._scope.addItem("読み込んだshot", SummaryScopeKind.LOADED_SHOTS)
+        self._scope.addItem("プローブ位置", SummaryScopeKind.POSITION)
+        self._scope.currentIndexChanged.connect(self._scope_selection_changed)
 
         self._context = QLabel("集計範囲: shot未選択")
         self._context.setObjectName("summaryContext")
@@ -113,6 +120,18 @@ class SummaryWorkspace(QWidget):
             label.setMinimumWidth(72)
             self._status_labels[status] = label
             status_layout.addWidget(label)
+
+        self._metadata_editor = ShotMetadataEditor()
+        self._metadata_editor.metadata_changed.connect(
+            self.shot_metadata_changed.emit
+        )
+        metadata_group = QGroupBox(
+            "shot位置metadata（shot名・folder名から自動推測しません）"
+        )
+        metadata_group.setObjectName("summaryShotMetadata")
+        metadata_layout = QVBoxLayout(metadata_group)
+        metadata_layout.setContentsMargins(4, 2, 4, 2)
+        metadata_layout.addWidget(self._metadata_editor)
 
         self._ti_plot = SummaryTrendPlot(SummaryMetric.TI)
         self._ti_plot.setObjectName("summaryTiTrendPlot")
@@ -276,6 +295,39 @@ class SummaryWorkspace(QWidget):
         self._views.addTab(trend_page, "推移・平均")
         self._views.addTab(body, "Sweep一覧・詳細")
 
+        self._aggregate_ti_plot = SummaryAggregatePlot(SummaryMetric.TI)
+        self._aggregate_ti_plot.setObjectName("summaryAggregateTiPlot")
+        self._aggregate_phi_plot = SummaryAggregatePlot(SummaryMetric.PHI)
+        self._aggregate_phi_plot.setObjectName("summaryAggregatePhiPlot")
+        aggregate_plots = QSplitter(Qt.Orientation.Horizontal)
+        aggregate_plots.setChildrenCollapsible(False)
+        aggregate_plots.addWidget(self._aggregate_ti_plot)
+        aggregate_plots.addWidget(self._aggregate_phi_plot)
+        aggregate_plots.setSizes([580, 580])
+
+        self._aggregate_missing = QTreeWidget()
+        self._aggregate_missing.setObjectName("summaryAggregateMissing")
+        self._aggregate_missing.setHeaderLabels(["shot", "集計対象外の理由"])
+        self._aggregate_missing.setMaximumHeight(150)
+        self._aggregate_missing.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self._aggregate_missing.header().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+
+        aggregate_page = QWidget()
+        aggregate_layout = QVBoxLayout(aggregate_page)
+        aggregate_layout.setContentsMargins(6, 6, 6, 6)
+        aggregate_layout.addWidget(aggregate_plots, 1)
+        aggregate_layout.addWidget(QLabel("欠損・集計対象外shot"))
+        aggregate_layout.addWidget(self._aggregate_missing)
+
+        self._content_stack = QStackedWidget()
+        self._content_stack.setObjectName("summaryScopeContent")
+        self._content_stack.addWidget(self._views)
+        self._content_stack.addWidget(aggregate_page)
+
         self._policy = QLabel(
             "表示だけでは解析を再計算しません。既定集計には現在のRevisionと一致し、"
             "有効または要確認の結果だけを使います。T_i平均は0 < T_i < 5 eVに限定します。"
@@ -293,7 +345,8 @@ class SummaryWorkspace(QWidget):
         layout.setSpacing(0)
         layout.addWidget(header)
         layout.addWidget(status_bar)
-        layout.addWidget(self._views, 1)
+        layout.addWidget(metadata_group)
+        layout.addWidget(self._content_stack, 1)
         layout.addWidget(self._policy)
 
         self.render_snapshot(None)
@@ -338,6 +391,14 @@ class SummaryWorkspace(QWidget):
     def phi_plot_point_count(self) -> int:
         return self._phi_plot.plotted_point_count
 
+    @property
+    def selected_scope_kind(self) -> SummaryScopeKind:
+        value = self._scope.currentData()
+        try:
+            return SummaryScopeKind(value)
+        except (TypeError, ValueError):
+            return SummaryScopeKind.CURRENT_SHOT
+
     def status_text(self, status: AnalysisStatus) -> str:
         return self._status_labels[status].text()
 
@@ -351,7 +412,13 @@ class SummaryWorkspace(QWidget):
         *,
         selected_sweep_id: str | None = None,
         empty_message: str = "Sweep分割後に解析結果を集計します",
+        shot_metadata: tuple[ShotMetadata, ...] = (),
     ) -> None:
+        self._content_stack.setCurrentIndex(0)
+        self._metadata_editor.render_metadata(
+            shot_metadata,
+            selected_shot_id=(snapshot.scope.shot_ids[0] if snapshot is not None else None),
+        )
         self._snapshot = snapshot
         self._rows = {}
         self._tree.blockSignals(True)
@@ -399,6 +466,51 @@ class SummaryWorkspace(QWidget):
             self._render_detail(self._rows.get(target) if target is not None else None)
         finally:
             self._tree.blockSignals(False)
+
+    def render_aggregate(
+        self,
+        snapshot: SummaryAggregateSnapshot | None,
+        *,
+        shot_metadata: tuple[ShotMetadata, ...] = (),
+        empty_message: str = "複数shotの解析結果がありません",
+    ) -> None:
+        self._content_stack.setCurrentIndex(1)
+        self._metadata_editor.render_metadata(shot_metadata)
+        self._aggregate_missing.clear()
+        self._aggregate_ti_plot.render_snapshot(snapshot)
+        self._aggregate_phi_plot.render_snapshot(snapshot)
+        if snapshot is None:
+            self._context.setText(f"集計範囲: {empty_message}")
+            self._denominator.setText("集計点 0")
+            self._render_status_counts(())
+            return
+        scope_label = (
+            "読み込んだshot"
+            if snapshot.kind is SummaryScopeKind.LOADED_SHOTS
+            else "プローブ位置"
+        )
+        self._context.setText(
+            f"集計範囲: {scope_label} ｜ {len(snapshot.shot_ids):,} shot"
+        )
+        self._denominator.setText(
+            f"集計点 {len(snapshot.points):,} ｜ 欠損 {len(snapshot.missing):,} shot"
+        )
+        self._render_status_counts(
+            ((AnalysisStatus.NOT_RUN, len(snapshot.missing)),)
+        )
+        for shot_id, reason in snapshot.missing:
+            self._aggregate_missing.addTopLevelItem(
+                QTreeWidgetItem([shot_id, reason])
+            )
+
+    def show_metadata_error(self, message: str) -> None:
+        self._metadata_editor.show_error(message)
+
+    def show_metadata_saved(self) -> None:
+        self._metadata_editor.show_saved()
+
+    def _scope_selection_changed(self, _index: int = -1) -> None:
+        self.scope_changed.emit(self.selected_scope_kind)
 
     def select_sweep(self, sweep_id: str) -> bool:
         self._tree.blockSignals(True)

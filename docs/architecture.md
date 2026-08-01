@@ -311,19 +311,41 @@ SummarySnapshot
        └─ ExportCandidateSnapshot
             ├─ current revision・valid/reviewを初期選択
             └─ stale/error/excludedを警告付きで保持
-                 └─ ExportWorkspace          renderer未構築
+                 └─ ExportWorkspace          明示preview・bundle出力
 
 ExportSelection + FigureSpec + Provenance
   └─ ExportManifest（canonical JSON / deterministic ID）
-       └─ Level 8 dedicated renderer
+       └─ PaperRenderer（画面widget非依存）
             └─ SVG / PDF / PNG / source CSV / manifest
 ```
 
 - `ExportSelection`はfolder、shot、位置、Sweep、方式、Raw/Filtered、除外採用を明示する。
 - `FigureSpec`は図種、panel、軸、単位、legend、error bar、論文presetを保持する。
 - `ExportManifest`はRevision、解析設定、version、採用点、除外理由を保存する。
-- session保存とfigure bundle出力は別の責務にする。
-- 現段階では重いrendererを作らず、workspace shellと契約だけを実装する。
+- project保存とfigure bundle出力は別の責務にする。
+- rendererは画面のplotを画像化せず、manifestとsource tableから独立に描画する。
+- previewはボタンによる明示更新とし、選択やstyle変更のたびに重い描画を開始しない。
+- bundleは一時directoryで全成果物を完成してから移動し、同名出力を暗黙に上書きしない。
+
+### 複数shot・project・監査の境界
+
+```text
+AnalysisResultStore
+  └─ AnalysisCatalog（shotごとのscalar SummaryRowのみ）
+       ├─ loaded-shot summary
+       └─ explicit ProbePosition aggregate
+
+AppState + roles + split + catalog + records + metadata + audit
+  └─ ProjectDocument schema 1
+       └─ ProjectFileStore（temp + fsync + atomic replace）
+```
+
+- `ProbePosition`は値とmm／cm／mの単位を持ち、shot名やfolder名から推測しない。
+- 複数shot集計は各shot内平均を作った後、shotを等重みで平均する。
+- `AnalysisCatalog`とprojectにはRaw配列を保存せず、Revisionとscalar resultだけを保持する。
+- project schema 0は1へ移行し、未知の将来schemaは推測せず読込を拒否する。
+- 元Rawは外部参照であり、移動時は利用者が新folderを選んで全folder identityを再リンクする。
+- 除外、復元、metadata、project保存／読込、Exportはappend-onlyの`AuditTrail`へ記録する。
 
 詳細は
 [Export論文図ビルダー仕様](usability/export-figure-builder-spec-2026-07-27.md)

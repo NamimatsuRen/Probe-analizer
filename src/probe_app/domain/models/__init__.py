@@ -1,3 +1,7 @@
+from probe_app.domain.models.analysis_catalog import (
+    AnalysisCatalog,
+    ShotAnalysisSnapshot,
+)
 from probe_app.domain.models.analysis_result import (
     ANALYSIS_STAGE_ORDER,
     AnalysisInputRevision,
@@ -11,6 +15,7 @@ from probe_app.domain.models.analysis_result import (
     SweepSplitRevision,
     downstream_stages,
 )
+from probe_app.domain.models.audit import AuditAction, AuditEvent, AuditTrail
 from probe_app.domain.models.catalog import FolderCatalog, ScanProblem
 from probe_app.domain.models.export import (
     AxisScale,
@@ -28,6 +33,16 @@ from probe_app.domain.models.export import (
     PanelSpec,
     SeriesStyle,
 )
+from probe_app.domain.models.export_source import (
+    ExportSourcePoint,
+    ExportSourceTable,
+)
+from probe_app.domain.models.project import (
+    PROJECT_SCHEMA_VERSION,
+    ProjectDocument,
+    ProjectShotSettings,
+    relink_project,
+)
 from probe_app.domain.models.raw_series import RawSeries, RawSeriesDescriptor
 from probe_app.domain.models.series_role import (
     AssignedSeries,
@@ -38,8 +53,15 @@ from probe_app.domain.models.series_role import (
     legacy_current_transform,
     legacy_sweep_voltage_transform,
 )
+from probe_app.domain.models.shot_metadata import (
+    ProbePosition,
+    ProbePositionUnit,
+    ShotMetadata,
+)
 from probe_app.domain.models.summary import (
     SUMMARY_METHOD_ORDER,
+    SummaryAggregatePoint,
+    SummaryAggregateSnapshot,
     SummaryMethod,
     SummaryMethodValue,
     SummaryMetric,
@@ -59,10 +81,14 @@ from probe_app.domain.models.sweep import (
 
 __all__ = [
     "ANALYSIS_STAGE_ORDER",
+    "AnalysisCatalog",
     "AnalysisInputRevision",
     "AnalysisStage",
     "AnalysisStatus",
     "AssignedSeries",
+    "AuditAction",
+    "AuditEvent",
+    "AuditTrail",
     "AxisScale",
     "AxisSpec",
     "ExportArtifactKind",
@@ -74,12 +100,19 @@ __all__ = [
     "ExportPreset",
     "ExportProvenance",
     "ExportSelection",
+    "ExportSourcePoint",
+    "ExportSourceTable",
     "FigureSpec",
     "FolderCatalog",
     "MethodOutcome",
     "PhysicalSignal",
     "PanelSpec",
     "PreprocessingRevision",
+    "PROJECT_SCHEMA_VERSION",
+    "ProbePosition",
+    "ProbePositionUnit",
+    "ProjectDocument",
+    "ProjectShotSettings",
     "RawSeries",
     "RawSeriesDescriptor",
     "ScanProblem",
@@ -88,9 +121,13 @@ __all__ = [
     "SeriesStyle",
     "SignalAssignmentRevision",
     "SignalTransform",
+    "ShotAnalysisSnapshot",
+    "ShotMetadata",
     "StageResult",
     "SUMMARY_METHOD_ORDER",
     "SummaryMetric",
+    "SummaryAggregatePoint",
+    "SummaryAggregateSnapshot",
     "SummaryMetricStatistics",
     "SummaryMethod",
     "SummaryMethodValue",
@@ -108,4 +145,5 @@ __all__ = [
     "downstream_stages",
     "legacy_current_transform",
     "legacy_sweep_voltage_transform",
+    "relink_project",
 ]

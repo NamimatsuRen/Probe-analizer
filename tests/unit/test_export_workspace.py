@@ -49,7 +49,7 @@ def test_export_workspace_is_read_only_and_warns_about_non_default_rows(
     assert "初期選択 1 / 2" in workspace.count_text
     assert "注意 1" in workspace.count_text
     assert "解析値を変更・再計算しません" in workspace.policy_text
-    assert not workspace.renderer_constructed
+    assert workspace.renderer_constructed
 
 
 def test_export_workspace_distinguishes_missing_scope(qtbot: object) -> None:

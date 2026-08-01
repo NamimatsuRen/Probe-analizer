@@ -110,7 +110,7 @@ def test_one_hundred_workspace_switches_start_no_work_and_do_not_grow_memory(
     assert positive_growth < 2 * 1024 * 1024
     assert window._analysis_sweep_iv_plot.selected_sweep is None  # noqa: SLF001
     assert window._analysis_sweep_iv_plot.preprocessed is None  # noqa: SLF001
-    assert not window._export_workspace.renderer_constructed  # noqa: SLF001
+    assert window._export_workspace.renderer_constructed  # noqa: SLF001
 
 
 def test_shared_sweep_selection_is_consistent_in_all_workspaces(
@@ -177,7 +177,7 @@ def test_large_summary_and_export_projection_remain_responsive(
     assert export_workspace.candidate_count == 1_000
     assert export_workspace.checked_candidate_count == 500
     assert elapsed_s < 2.5
-    assert not export_workspace.renderer_constructed
+    assert export_workspace.renderer_constructed
 
 
 def test_old_scan_and_series_load_generations_are_discarded(

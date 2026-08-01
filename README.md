@@ -2,9 +2,10 @@
 
 プローブ測定データを、フォルダから直接選んで確認・解析するデスクトップアプリです。
 
-開発ロードマップの **Level 7（現在shotのサマリー）** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
+開発ロードマップの **Level 8（保存・Export・再現性・配布）** まで実装済みです。フォルダからRaw波形を確認し、同一shotの
 current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V確認、平滑化・微分比較、
-`V_f`・`Phi`・飽和域・`T_i`の段階解析、Sweep推移と方式別平均の確認まで実行できます。
+`V_f`・`Phi`・飽和域・`T_i`の段階解析、複数shot／位置サマリー、project保存、論文図bundleの
+生成まで実行できます。
 
 ## 現在できること
 
@@ -60,9 +61,17 @@ current／sweep voltageを割り当て、Sweep分割、Raw対応表示、I–V�
 - サマリーで現在Revisionの解析済みSweepを理由付きで除外・復元し、再解析せず集計へ即時反映
 - サマリーから対象Sweepを共有選択へ設定し、「解析で確認」で解析タブへ移動
 - サマリー表示そのものではフィットや前処理を再計算しない
+- shotごとにプローブ位置と単位を明示入力し、ファイル名から位置を推測しない
+- 読み込んだ全shotまたは同一位置のshotを対象に、shotを等重みとした平均と実標準偏差を表示
+- 位置metadataがないshotを黙って除外せず、集計不能理由を表示
 - Exportでcurrent revisionの有効／要確認だけを初期選択し、stale・失敗・除外も理由付きで表示
-- Exportの図種、論文preset、SVG/PDF/PNG/CSV/manifest bundleと再現情報の契約を表示
+- I–V、fit、Sweep推移、位置依存、方式比較から論文図を構成し、明示操作でpreviewを更新
+- SVG／PDF／PNGと、採用点を保存するsource CSV、解析Revisionを保存するmanifestを一括出力
+- 同名のExport成果物を暗黙に上書きせず、確認された場合だけ置換
 - Exportを開く・対象やstyleを変える操作では解析値を変更・再計算しない
+- 解析結果、系列割当、Sweep条件、位置、選択、監査履歴をportable projectへ原子的に保存・復元
+- Rawフォルダを移動した場合はprojectを新しい場所へ明示的に再リンク
+- macOS arm64／Windows x64の配布物を同一tagから検証付きで生成
 
 ## 対応するフォルダ
 
@@ -95,6 +104,10 @@ uv run python -m probe_app
 
 画面左上の「フォルダを開く」から測定フォルダを選択してください。
 
+作業を中断するときは「projectを保存」を使います。projectにはRaw配列を複製せず、元フォルダ、
+設定、解析Revision、結果、除外、位置metadata、監査履歴を保存します。再開時は「projectを開く」を
+選び、元データを移動した場合だけ新しい測定フォルダへ再リンクしてください。
+
 ## 検証
 
 ```bash
@@ -124,7 +137,7 @@ uv run mypy
 
 - currentチャンネルとsweep voltageチャンネルの自動決定
 - Raw側の多窓SG微分候補と4方式すべての`T_i`比較
-- Level 4–6結果の全Sweep一括バッチ解析
+- 配布物へのコード署名・Apple公証
 
 current／sweep voltageは自動決定せず、利用者が画面から指定します。Rawプロットには`.hdr`の
 分解能・オフセットだけを適用し、追加倍率は後続のSweep解析で使用します。
@@ -220,4 +233,5 @@ Sweep.iv_voltage_v / iv_current_a
 - [サマリーワークスペース状態・集計契約](docs/usability/summary-workspace-contract-2026-07-27.md)
 - [Export論文図ビルダー仕様](docs/usability/export-figure-builder-spec-2026-07-27.md)
 - [4ワークスペース状態同期・無再計算テスト](docs/testing/workspace-regression.md)
+- [Level 8リリース・project再開・Export再現性手順](docs/release-level8.md)
 - [ADR: フォルダ起点の入力](docs/adr/0002-folder-first-input.md)
