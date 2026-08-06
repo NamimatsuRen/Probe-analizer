@@ -25,6 +25,7 @@ def test_data_browser_starts_with_guidance_and_collapsed_shots(
     )
 
     assert "フォルダを開く" in browser._guidance.text()  # noqa: SLF001
+    assert browser._tree.objectName() == "dataSeriesTree"  # noqa: SLF001
     browser.set_catalog(FolderCatalog(root=tmp_path, series=(descriptor,)))
 
     shot_item = browser._tree.topLevelItem(0)  # noqa: SLF001

@@ -19,6 +19,7 @@ def _interaction_stylesheet() -> str:
             border-radius: 5px;
             padding: 5px 9px;
             background: #f8fafc;
+            color: #173b6c;
         }
         QPushButton:hover, QToolButton:hover {
             background: #dbeafe;
@@ -28,8 +29,7 @@ def _interaction_stylesheet() -> str:
         QPushButton:pressed, QToolButton:pressed {
             background: #93c5fd;
             border-color: #1d4ed8;
-            padding-top: 7px;
-            padding-bottom: 3px;
+            color: #102a56;
         }
         QPushButton:disabled, QToolButton:disabled {
             background: #eaecf0;
@@ -76,6 +76,18 @@ def _interaction_stylesheet() -> str:
             background: #eaecf0;
             border-color: #d0d5dd;
             color: #98a2b3;
+        }
+        QTreeWidget#dataSeriesTree::item:selected {
+            background: #e4e7ec;
+            color: #101828;
+        }
+        QTreeWidget#dataSeriesTree::item:hover {
+            background: #dbeafe;
+            color: #173b6c;
+        }
+        QTreeWidget#dataSeriesTree::item:selected:hover {
+            background: #bfdbfe;
+            color: #102a56;
         }
     """
 
