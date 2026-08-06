@@ -11,8 +11,10 @@ from PySide6.QtCore import QSettings, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
     QStyle,
     QTabWidget,
@@ -245,8 +247,35 @@ class MainWindow(QMainWindow):
         self._lower_workspace = QSplitter(Qt.Orientation.Horizontal)
         self._lower_workspace.setObjectName("rawAndControlWorkspace")
         self._lower_workspace.setChildrenCollapsible(False)
+        self._previous_sweep_button = QPushButton("← 前のSweep")
+        self._previous_sweep_button.setObjectName("previousSweepButton")
+        self._previous_sweep_button.setMinimumWidth(132)
+        self._previous_sweep_button.setToolTip("1つ前のSweepを表示します（Alt+←）")
+        self._previous_sweep_button.clicked.connect(self._sweep_browser.select_previous)
+        self._next_sweep_button = QPushButton("次のSweep →")
+        self._next_sweep_button.setObjectName("nextSweepButton")
+        self._next_sweep_button.setMinimumWidth(132)
+        self._next_sweep_button.setToolTip("1つ次のSweepを表示します（Alt+→）")
+        self._next_sweep_button.clicked.connect(self._sweep_browser.select_next)
+
+        self._sweep_navigation_bar = QWidget()
+        self._sweep_navigation_bar.setObjectName("sweepNavigationBar")
+        navigation_layout = QHBoxLayout(self._sweep_navigation_bar)
+        navigation_layout.setContentsMargins(6, 4, 6, 6)
+        navigation_layout.addStretch(1)
+        navigation_layout.addWidget(self._previous_sweep_button)
+        navigation_layout.addWidget(self._next_sweep_button)
+
+        self._data_controls = QWidget()
+        self._data_controls.setObjectName("dataConfirmationControls")
+        controls_layout = QVBoxLayout(self._data_controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(2)
+        controls_layout.addWidget(self._details_tabs, 1)
+        controls_layout.addWidget(self._sweep_navigation_bar)
+
         self._lower_workspace.addWidget(self._raw_plot)
-        self._lower_workspace.addWidget(self._details_tabs)
+        self._lower_workspace.addWidget(self._data_controls)
         self._lower_workspace.setStretchFactor(0, 2)
         self._lower_workspace.setStretchFactor(1, 1)
         self._lower_workspace.setSizes([720, 240])
@@ -264,17 +293,21 @@ class MainWindow(QMainWindow):
         self._workspace_tabs.addTab(self._export_workspace, "Export")
         self._workspace_tabs.setCurrentIndex(0)
 
-        content = QSplitter(Qt.Orientation.Horizontal)
-        content.addWidget(left)
-        content.addWidget(self._workspace_tabs)
-        content.setStretchFactor(0, 1)
-        content.setStretchFactor(1, 5)
-        content.setSizes([280, 1160])
+        self._selection_sidebar = left
+        self._selection_sidebar.setObjectName("dataSelectionSidebar")
+        self._selection_sidebar.setMinimumWidth(170)
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._main_splitter.setObjectName("mainWorkspaceSplitter")
+        self._main_splitter.addWidget(self._selection_sidebar)
+        self._main_splitter.addWidget(self._workspace_tabs)
+        self._main_splitter.setStretchFactor(0, 0)
+        self._main_splitter.setStretchFactor(1, 1)
+        self._main_splitter.setSizes([190, 1250])
 
         root = QWidget()
         layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(content, 1)
+        layout.addWidget(self._main_splitter, 1)
         layout.addWidget(self._status)
         self.setCentralWidget(root)
 
@@ -282,6 +315,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("ファイル")
         toolbar.setObjectName("mainActionToolbar")
         toolbar.setMovable(False)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
         self._open_action = QAction("フォルダを開く", self)
@@ -321,19 +355,17 @@ class MainWindow(QMainWindow):
         self._cancel_action.triggered.connect(self._cancel_work)
         toolbar.addAction(self._cancel_action)
 
-        toolbar.addSeparator()
-
         self._previous_sweep_action = QAction("前のSweep", self)
         self._previous_sweep_action.setShortcut(QKeySequence("Alt+Left"))
         self._previous_sweep_action.setStatusTip("1つ前のSweepを表示します")
         self._previous_sweep_action.triggered.connect(self._sweep_browser.select_previous)
-        toolbar.addAction(self._previous_sweep_action)
+        self.addAction(self._previous_sweep_action)
 
         self._next_sweep_action = QAction("次のSweep", self)
         self._next_sweep_action.setShortcut(QKeySequence("Alt+Right"))
         self._next_sweep_action.setStatusTip("1つ次のSweepを表示します")
         self._next_sweep_action.triggered.connect(self._sweep_browser.select_next)
-        toolbar.addAction(self._next_sweep_action)
+        self.addAction(self._next_sweep_action)
 
     def _choose_folder(self) -> None:
         initial_value = self._settings.value("recentFolder", str(Path.home()), type=str)
@@ -1414,6 +1446,10 @@ class MainWindow(QMainWindow):
         self._cancel_action.setEnabled(busy)
         self._previous_sweep_action.setEnabled(not busy and self._sweep_browser.can_select_previous)
         self._next_sweep_action.setEnabled(not busy and self._sweep_browser.can_select_next)
+        self._previous_sweep_button.setEnabled(
+            not busy and self._sweep_browser.can_select_previous
+        )
+        self._next_sweep_button.setEnabled(not busy and self._sweep_browser.can_select_next)
 
     def _render_sweep_panel(self, *, details: str | None = None) -> None:
         self._sweep_panel.render_state(

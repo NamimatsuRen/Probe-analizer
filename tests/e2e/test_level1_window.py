@@ -76,11 +76,22 @@ def test_level1_window_starts(qtbot: object) -> None:
         window._lower_workspace.orientation() is Qt.Orientation.Horizontal
     )
     assert window._lower_workspace.widget(0) is window._raw_plot  # noqa: SLF001
-    assert window._lower_workspace.widget(1) is window._details_tabs  # noqa: SLF001
+    assert window._lower_workspace.widget(1) is window._data_controls  # noqa: SLF001
+    assert window._details_tabs.parent() is window._data_controls  # noqa: SLF001
+    assert (  # noqa: SLF001
+        window._previous_sweep_button.parent() is window._sweep_navigation_bar
+    )
+    assert window._next_sweep_button.parent() is window._sweep_navigation_bar  # noqa: SLF001
+    assert window._previous_sweep_button.text() == "← 前のSweep"  # noqa: SLF001
+    assert window._next_sweep_button.text() == "次のSweep →"  # noqa: SLF001
 
     raw_width, controls_width = window._lower_workspace.sizes()  # noqa: SLF001
     assert raw_width > controls_width
     assert 1.5 <= raw_width / controls_width <= 2.5
+
+    selection_width, workspace_width = window._main_splitter.sizes()  # noqa: SLF001
+    assert selection_width < workspace_width
+    assert selection_width / (selection_width + workspace_width) < 0.2
 
     for index in range(window._details_tabs.count()):  # noqa: SLF001
         window._details_tabs.setCurrentIndex(index)  # noqa: SLF001
@@ -536,13 +547,18 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert revised_record.revision.cache_key != first_record.revision.cache_key
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert not window._previous_sweep_button.isEnabled()  # noqa: SLF001
+    assert window._next_sweep_button.isEnabled()  # noqa: SLF001
     assert (  # noqa: SLF001
         window._previous_sweep_action.shortcut().toString() == "Alt+Left"
     )
     assert window._next_sweep_action.shortcut().toString() == "Alt+Right"  # noqa: SLF001
 
     second_sweep = window._state.sweeps[1]  # noqa: SLF001
-    window._next_sweep_action.trigger()  # noqa: SLF001
+    qtbot.mouseClick(  # type: ignore[attr-defined]
+        window._next_sweep_button,  # noqa: SLF001
+        Qt.MouseButton.LeftButton,
+    )
     assert window._sweep_browser.selected_sweep == second_sweep  # noqa: SLF001
     assert window._state.selected_sweep == second_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == second_sweep  # noqa: SLF001
@@ -557,6 +573,8 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._analysis_sweep_iv_plot.preprocessed is not None  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert window._previous_sweep_button.isEnabled()  # noqa: SLF001
+    assert window._next_sweep_button.isEnabled()  # noqa: SLF001
     assert window._summary_workspace.row_count == sweep_count  # noqa: SLF001
     assert (  # noqa: SLF001
         window._summary_workspace.selected_sweep_id == second_sweep.sweep_id
@@ -600,10 +618,15 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._sweep_iv_plot.selected_sweep == last_sweep  # noqa: SLF001
     assert window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert window._previous_sweep_button.isEnabled()  # noqa: SLF001
+    assert not window._next_sweep_button.isEnabled()  # noqa: SLF001
     window._next_sweep_action.trigger()  # noqa: SLF001
     assert window._sweep_browser.selected_sweep == last_sweep  # noqa: SLF001
 
-    window._previous_sweep_action.trigger()  # noqa: SLF001
+    qtbot.mouseClick(  # type: ignore[attr-defined]
+        window._previous_sweep_button,  # noqa: SLF001
+        Qt.MouseButton.LeftButton,
+    )
     penultimate_sweep = window._state.sweeps[-2]  # noqa: SLF001
     assert window._sweep_browser.selected_sweep == penultimate_sweep  # noqa: SLF001
     assert window._raw_plot.highlighted_sweep == penultimate_sweep  # noqa: SLF001
@@ -637,6 +660,8 @@ def test_level2_window_runs_sweep_split_and_discards_stale_result(
     assert window._preprocessing_panel.result is None  # noqa: SLF001
     assert not window._previous_sweep_action.isEnabled()  # noqa: SLF001
     assert not window._next_sweep_action.isEnabled()  # noqa: SLF001
+    assert not window._previous_sweep_button.isEnabled()  # noqa: SLF001
+    assert not window._next_sweep_button.isEnabled()  # noqa: SLF001
     window._sweep_split_succeeded(stale_generation, stale_result)  # noqa: SLF001
     assert window._state.sweeps == ()  # noqa: SLF001
     assert window._sweep_browser.sweep_count == 0  # noqa: SLF001

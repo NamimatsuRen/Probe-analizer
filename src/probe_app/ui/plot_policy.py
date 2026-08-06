@@ -6,8 +6,9 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
 
-IV_X_MIN_V = -50.0
-IV_X_MAX_V = 50.0
+IV_X_MIN_V = -55.0
+IV_X_MAX_V = 55.0
+Y_RANGE_MARGIN_FRACTION = 0.10
 
 
 def add_zero_reference(plot: pg.PlotWidget) -> pg.InfiniteLine:
@@ -47,7 +48,7 @@ def constrain_y_to_data(
         upper = max(upper, 0.0)
     span = upper - lower
     scale = max(abs(lower), abs(upper), 1.0)
-    margin = max(span * 0.05, scale * 1e-6)
+    margin = max(span * Y_RANGE_MARGIN_FRACTION, scale * 1e-6)
     limits = (lower - margin, upper + margin)
     plot.getViewBox().setLimits(yMin=limits[0], yMax=limits[1])
     plot.setYRange(*limits, padding=0.0)
@@ -55,6 +56,7 @@ def constrain_y_to_data(
 
 
 def constrain_iv_x(plot: pg.PlotWidget) -> None:
-    """Prevent I–V zoom-out and pan beyond the physical -50...+50 V view."""
+    """Prevent I–V zoom-out and pan beyond the physical -55...+55 V view."""
 
     plot.getViewBox().setLimits(xMin=IV_X_MIN_V, xMax=IV_X_MAX_V)
+    plot.setXRange(IV_X_MIN_V, IV_X_MAX_V, padding=0.0)

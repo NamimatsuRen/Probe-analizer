@@ -35,6 +35,7 @@ class DataBrowser(QWidget):
         self._folder_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         self._tree = QTreeWidget()
+        self._tree.setObjectName("dataSeriesTree")
         self._tree.setHeaderLabels(["測定データ", "点数", "単位"])
         self._tree.setAlternatingRowColors(True)
         self._tree.setUniformRowHeights(True)
