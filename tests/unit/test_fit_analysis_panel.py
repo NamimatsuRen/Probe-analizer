@@ -28,6 +28,27 @@ def test_fit_panel_requires_explicit_run_and_emits_typed_settings(
     assert emitted[0].temperature.fit_window_v == 0.1
 
 
+def test_fit_panel_supports_explicit_manual_ti_without_implicit_run(
+    qtbot: object,
+) -> None:
+    panel = FitAnalysisPanel()
+    qtbot.addWidget(panel)  # type: ignore[attr-defined]
+    emitted: list[AnalysisSettings] = []
+    panel.run_requested.connect(emitted.append)
+    panel.select_sweep("shot-001/sweep:1")
+
+    assert not panel._manual_ti.isEnabled()  # noqa: SLF001
+    assert "測定電流とPANTAモデルの差" in panel._sse_help.text()  # noqa: SLF001
+
+    panel._manual_ti_enabled.setChecked(True)  # noqa: SLF001
+    panel._manual_ti.setValue(1.75)  # noqa: SLF001
+
+    assert panel._manual_ti.isEnabled()  # noqa: SLF001
+    assert emitted == []
+    panel._run_button.click()  # noqa: SLF001
+    assert emitted[-1].temperature.manual_ti_ev == 1.75
+
+
 def test_fit_panel_controls_current_shot_batch_without_implicit_run(
     qtbot: object,
 ) -> None:

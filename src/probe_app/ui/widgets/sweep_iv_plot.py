@@ -12,6 +12,11 @@ from probe_app.analysis import (
 )
 from probe_app.domain.models.raw_series import FloatArray
 from probe_app.domain.models.sweep import Sweep, SweepDirection
+from probe_app.ui.plot_policy import (
+    add_zero_reference,
+    constrain_iv_x,
+    constrain_y_to_data,
+)
 
 
 class SweepIVPlot(QWidget):
@@ -38,6 +43,8 @@ class SweepIVPlot(QWidget):
         self._ion_fit_curve: pg.PlotDataItem | None = None
         self._electron_fit_curve: pg.PlotDataItem | None = None
         self._model_curve: pg.PlotDataItem | None = None
+        self._zero_line: pg.InfiniteLine | None = None
+        self._derivative_zero_line: pg.InfiniteLine | None = None
 
         self._selection_info = QLabel("Sweep分割後に一覧から選択してください")
         self._selection_info.setObjectName("sweepIvSelectionInfo")
@@ -86,6 +93,11 @@ class SweepIVPlot(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._selection_info)
         layout.addWidget(plot_container, 1)
+        constrain_iv_x(self._plot)
+        self._zero_line = add_zero_reference(self._plot)
+        if self._derivative_plot is not None:
+            constrain_iv_x(self._derivative_plot)
+            self._derivative_zero_line = add_zero_reference(self._derivative_plot)
 
     @property
     def analysis_enabled(self) -> bool:
@@ -141,9 +153,11 @@ class SweepIVPlot(QWidget):
         self._end_marker = None
         self._reset_analysis_item_refs()
         self._plot.clear()
+        self._zero_line = add_zero_reference(self._plot)
         self._plot.setTitle(self._empty_iv_title)
         if self._derivative_plot is not None:
             self._derivative_plot.clear()
+            self._derivative_zero_line = add_zero_reference(self._derivative_plot)
             self._derivative_plot.setTitle("dI/dV")
         self._selection_info.setText(message)
 
@@ -154,8 +168,10 @@ class SweepIVPlot(QWidget):
         self._derivative_curve = None
         self._reset_analysis_item_refs()
         self._plot.clear()
+        self._zero_line = add_zero_reference(self._plot)
         if self._derivative_plot is not None:
             self._derivative_plot.clear()
+            self._derivative_zero_line = add_zero_reference(self._derivative_plot)
         direction = "上昇" if sweep.direction is SweepDirection.UP else "下降"
         color = "#2563eb" if sweep.direction is SweepDirection.UP else "#d97706"
         self._curve = self._plot.plot(
@@ -190,8 +206,11 @@ class SweepIVPlot(QWidget):
         self._plot.setLabel("bottom", "Voltage", units="V")
         self._plot.setLabel("left", "Current", units="A")
         self._plot.enableAutoRange()
+        constrain_iv_x(self._plot)
+        constrain_y_to_data(self._plot, (sweep.iv_current_a,))
         if self._derivative_plot is not None:
             self._derivative_plot.enableAutoRange()
+            constrain_iv_x(self._derivative_plot)
         self._selection_info.setText(
             f"選択Sweep: {sweep.sweep_id} ｜ 取得方向: {direction} ｜ "
             f"current: {sweep.current_series_id} [A] ｜ "
@@ -208,6 +227,7 @@ class SweepIVPlot(QWidget):
         if self._filtered_curve is not None:
             self._plot.removeItem(self._filtered_curve)
         self._derivative_plot.clear()
+        self._derivative_zero_line = add_zero_reference(self._derivative_plot)
 
         self._preprocessed = result
         self._filtered_curve = self._plot.plot(
@@ -228,6 +248,16 @@ class SweepIVPlot(QWidget):
         )
         self._plot.enableAutoRange()
         self._derivative_plot.enableAutoRange()
+        constrain_iv_x(self._plot)
+        constrain_iv_x(self._derivative_plot)
+        constrain_y_to_data(
+            self._plot,
+            (result.raw_current_a, result.filtered_current_a),
+        )
+        constrain_y_to_data(
+            self._derivative_plot,
+            (result.dcurrent_dvoltage_a_per_v,),
+        )
 
     def show_analysis_result(self, result: CompleteAnalysisResult) -> None:
         """Overlay selected potentials, saturation lines, and PANTA model."""
@@ -312,6 +342,14 @@ class SweepIVPlot(QWidget):
                 pen=pg.mkPen("#9333ea", width=2.25),
                 name=f"PANTA T_i={fit.ti_ev:.4g} eV",
             )
+        constrain_iv_x(self._plot)
+        constrain_y_to_data(
+            self._plot,
+            (
+                result.preprocessed.raw_current_a,
+                result.preprocessed.filtered_current_a,
+            ),
+        )
 
     def clear_analysis_result(self) -> None:
         self._clear_analysis_overlays()
@@ -325,6 +363,7 @@ class SweepIVPlot(QWidget):
         self._clear_analysis_overlays()
         if self._derivative_plot is not None:
             self._derivative_plot.clear()
+            self._derivative_zero_line = add_zero_reference(self._derivative_plot)
             self._derivative_plot.setTitle(message)
 
     def _clear_analysis_overlays(self) -> None:

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
@@ -97,9 +98,7 @@ class ExportWorkspace(QWidget):
 
         self._counts = QLabel("初期選択 0 / 0 ｜ 注意 0")
         self._counts.setObjectName("exportCandidateCounts")
-        self._counts.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self._counts.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         header = QFrame()
         header.setObjectName("exportHeader")
@@ -137,9 +136,13 @@ class ExportWorkspace(QWidget):
         self._preview.setObjectName("exportPreviewPlaceholder")
         self._preview.setWordWrap(True)
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview.setMinimumSize(0, 0)
+        self._preview.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Ignored,
+        )
         self._preview.setStyleSheet(
-            "background: white; color: #667085; border: 1px solid #d0d5dd;"
-            " padding: 20px;"
+            "background: white; color: #667085; border: 1px solid #d0d5dd; padding: 20px;"
         )
 
         self._artifact_checks: dict[ExportArtifactKind, QCheckBox] = {}
@@ -205,8 +208,7 @@ class ExportWorkspace(QWidget):
         self._policy.setObjectName("exportPolicy")
         self._policy.setWordWrap(True)
         self._policy.setStyleSheet(
-            "background: #f8fafc; color: #475467; padding: 6px 8px;"
-            " border-top: 1px solid #d0d5dd;"
+            "background: #f8fafc; color: #475467; padding: 6px 8px; border-top: 1px solid #d0d5dd;"
         )
 
         layout = QVBoxLayout(self)
@@ -261,9 +263,7 @@ class ExportWorkspace(QWidget):
         figure_type = ExportFigureType(str(self._figure_type.currentData()))
         preset = ExportPreset(str(self._preset.currentData()))
         artifacts = tuple(
-            artifact
-            for artifact, checkbox in self._artifact_checks.items()
-            if checkbox.isChecked()
+            artifact for artifact, checkbox in self._artifact_checks.items() if checkbox.isChecked()
         )
         sweep_ids = tuple(
             str(item.data(0, EXPORT_SWEEP_ID_ROLE))
@@ -271,8 +271,7 @@ class ExportWorkspace(QWidget):
                 self._candidates.topLevelItem(index)
                 for index in range(self._candidates.topLevelItemCount())
             )
-            if item is not None
-            and item.checkState(0) is Qt.CheckState.Checked
+            if item is not None and item.checkState(0) is Qt.CheckState.Checked
         )
         return ExportWorkspaceRequest(
             figure_type=figure_type,
@@ -284,12 +283,16 @@ class ExportWorkspace(QWidget):
 
     def show_preview(self, image: QImage, message: str = "") -> None:
         pixmap = QPixmap.fromImage(image)
+        target = self._preview.contentsRect().size()
         self._preview.setPixmap(
             pixmap.scaled(
-                self._preview.size(),
+                target,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+        )
+        self._preview.setStyleSheet(
+            "background: white; color: #667085; border: 1px solid #d0d5dd; padding: 8px;"
         )
         self._preview.setToolTip(message)
 
@@ -297,8 +300,7 @@ class ExportWorkspace(QWidget):
         self._preview.setPixmap(QPixmap())
         self._preview.setText(message)
         self._preview.setStyleSheet(
-            "background: #fff; color: #b42318; border: 1px solid #fda29b;"
-            " padding: 20px;"
+            "background: #fff; color: #b42318; border: 1px solid #fda29b; padding: 20px;"
         )
 
     def show_exported(self, message: str) -> None:
@@ -322,9 +324,7 @@ class ExportWorkspace(QWidget):
             return
 
         shots = "、".join(snapshot.shot_ids)
-        self._scope.setText(
-            f"Export範囲: shot {shots} ｜ current revision優先"
-        )
+        self._scope.setText(f"Export範囲: shot {shots} ｜ current revision優先")
         self._counts.setText(
             f"初期選択 {snapshot.default_candidate_count:,} / "
             f"{len(snapshot.candidates):,} ｜ 注意 {snapshot.warning_count:,}"
@@ -337,9 +337,7 @@ class ExportWorkspace(QWidget):
         self._updating = False
         if snapshot.candidates:
             self._preview.setPixmap(QPixmap())
-            self._preview.setText(
-                "設定を確認して「プレビューを更新」を押してください"
-            )
+            self._preview.setText("設定を確認して「プレビューを更新」を押してください")
 
     def _candidate_changed(self, _item: QTreeWidgetItem, _column: int) -> None:
         if self._updating or self._snapshot is None:
@@ -390,11 +388,7 @@ def _candidate_item(candidate: ExportCandidate) -> QTreeWidgetItem:
     item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
     item.setCheckState(
         0,
-        (
-            Qt.CheckState.Checked
-            if candidate.selected_by_default
-            else Qt.CheckState.Unchecked
-        ),
+        (Qt.CheckState.Checked if candidate.selected_by_default else Qt.CheckState.Unchecked),
     )
     item.setForeground(3, QBrush(QColor(color)))
     item.setData(0, EXPORT_SWEEP_ID_ROLE, candidate.sweep_id)

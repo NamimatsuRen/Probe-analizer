@@ -65,9 +65,7 @@ class AnalysisWorkspace(QWidget):
         self._revision = QLabel("Revision: 未作成")
         self._revision.setObjectName("analysisRevisionStatus")
         self._revision.setWordWrap(True)
-        self._revision.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        self._revision.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         header = QFrame()
         header.setObjectName("analysisHeader")
@@ -117,9 +115,9 @@ class AnalysisWorkspace(QWidget):
         body.addWidget(self.plot)
         body.addWidget(inspector_scroll)
         body.setStretchFactor(0, 0)
-        body.setStretchFactor(1, 5)
+        body.setStretchFactor(1, 6)
         body.setStretchFactor(2, 2)
-        body.setSizes([170, 690, 290])
+        body.setSizes([145, 760, 265])
 
         self._impact = QLabel(
             "前処理やFit設定を変更しても自動再計算しません。"
@@ -128,8 +126,7 @@ class AnalysisWorkspace(QWidget):
         self._impact.setObjectName("analysisImpactNotice")
         self._impact.setWordWrap(True)
         self._impact.setStyleSheet(
-            "background: #f8fafc; color: #475467; padding: 5px 8px;"
-            " border-top: 1px solid #d0d5dd;"
+            "background: #f8fafc; color: #475467; padding: 5px 8px; border-top: 1px solid #d0d5dd;"
         )
 
         layout = QVBoxLayout(self)
@@ -186,14 +183,10 @@ class AnalysisWorkspace(QWidget):
             )
         else:
             status_text, color, _ = _STATUS_PRESENTATION[record.status]
-            self._revision.setText(
-                f"Revision: {record.revision.cache_key[:10]}… ｜ {status_text}"
-            )
+            self._revision.setText(f"Revision: {record.revision.cache_key[:10]}… ｜ {status_text}")
             self._revision.setStyleSheet(f"color: {color}; font-weight: 600;")
             if record.status is AnalysisStatus.STALE:
-                self._impact.setText(
-                    f"この結果は再計算が必要です。理由: {record.message}"
-                )
+                self._impact.setText(f"この結果は再計算が必要です。理由: {record.message}")
             elif record.status is AnalysisStatus.ERROR:
                 self._impact.setText(
                     f"前処理に失敗しました。設定を修正して明示的に再実行してください。"

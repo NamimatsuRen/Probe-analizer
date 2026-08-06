@@ -169,9 +169,7 @@ def _potential_stage(
                 status=candidate.status,
                 message=candidate.message,
                 selected_candidate_id=candidate.candidate_id,
-                manual_override=(
-                    settings.selected_phi_candidate_id == candidate.candidate_id
-                ),
+                manual_override=(settings.selected_phi_candidate_id == candidate.candidate_id),
                 metrics=_metrics(**metrics),
             )
         )
@@ -274,8 +272,8 @@ def _temperature_analysis(
                 message=fit.message,
                 selected_candidate_id=fit.phi_candidate_id,
                 manual_override=(
-                    settings.potential.selected_phi_candidate_id
-                    == fit.phi_candidate_id
+                    settings.temperature.manual_ti_ev is not None
+                    or settings.potential.selected_phi_candidate_id == fit.phi_candidate_id
                 ),
                 metrics=_metrics(**metrics),
             )
@@ -366,16 +364,10 @@ def _phi_candidate_per_method(
         if candidate.method_id in methods:
             continue
         same_method = tuple(
-            item
-            for item in result.phi_candidates
-            if item.method_id == candidate.method_id
+            item for item in result.phi_candidates if item.method_id == candidate.method_id
         )
         chosen = next(
-            (
-                item
-                for item in same_method
-                if item.candidate_id == result.selected_phi_candidate_id
-            ),
+            (item for item in same_method if item.candidate_id == result.selected_phi_candidate_id),
             max(same_method, key=lambda item: item.score),
         )
         methods.append(candidate.method_id)

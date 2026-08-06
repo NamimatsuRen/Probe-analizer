@@ -47,9 +47,7 @@ class TemperatureAnalysis:
     @property
     def selected_fit(self) -> TemperatureFit:
         return next(
-            fit
-            for fit in self.fits
-            if fit.phi_candidate_id == self.selected_phi_candidate_id
+            fit for fit in self.fits if fit.phi_candidate_id == self.selected_phi_candidate_id
         )
 
 
@@ -68,11 +66,7 @@ def panta_current(
     voltage = np.asarray(voltage_v, dtype=np.float64)
     exponent = np.clip((phi_v - voltage) / ti_ev, -700.0, 700.0)
     return np.asarray(
-        isat_i_a
-        * (
-            r_ratio * (1.0 + k_per_v * (voltage - vf_v))
-            - np.exp(exponent)
-        ),
+        isat_i_a * (r_ratio * (1.0 + k_per_v * (voltage - vf_v)) - np.exp(exponent)),
         dtype=np.float64,
     )
 
@@ -89,16 +83,12 @@ def fit_panta_temperature(
     """Fit only T_i with all other model parameters fixed."""
 
     settings = settings or TemperatureSettings()
-    fit_mask = (
-        (result.voltage_v >= phi_v - settings.fit_window_v)
-        & (result.voltage_v <= phi_v)
-    )
+    fit_mask = (result.voltage_v >= phi_v - settings.fit_window_v) & (result.voltage_v <= phi_v)
     fit_voltage = result.voltage_v[fit_mask]
     fit_current = result.filtered_current_a[fit_mask]
     if fit_voltage.size < settings.minimum_points:
         raise TemperatureError(
-            f"T_i評価窓に{fit_voltage.size}点しかありません"
-            f"（最低{settings.minimum_points}点）"
+            f"T_i評価窓に{fit_voltage.size}点しかありません（最低{settings.minimum_points}点）"
         )
 
     def objective(ti_ev: float) -> float:
@@ -115,17 +105,22 @@ def fit_panta_temperature(
         value = float(np.sum(residual**2))
         return value if np.isfinite(value) else float("inf")
 
-    optimized = minimize_scalar(
-        objective,
-        bounds=(settings.min_ti_ev, settings.max_ti_ev),
-        method="bounded",
-        options={"xatol": 1e-7},
-    )
-    if not optimized.success or not np.isfinite(optimized.x) or not np.isfinite(optimized.fun):
-        raise TemperatureError("T_i有界最適化が収束しませんでした")
-
-    ti_ev = float(optimized.x)
-    objective_value = float(optimized.fun)
+    if settings.manual_ti_ev is None:
+        optimized = minimize_scalar(
+            objective,
+            bounds=(settings.min_ti_ev, settings.max_ti_ev),
+            method="bounded",
+            options={"xatol": 1e-7},
+        )
+        if not optimized.success or not np.isfinite(optimized.x) or not np.isfinite(optimized.fun):
+            raise TemperatureError("T_i有界最適化が収束しませんでした")
+        ti_ev = float(optimized.x)
+        objective_value = float(optimized.fun)
+    else:
+        ti_ev = settings.manual_ti_ev
+        objective_value = objective(ti_ev)
+        if not np.isfinite(objective_value):
+            raise TemperatureError("手動指定したT_iで目的関数を評価できませんでした")
     rmse = float(np.sqrt(objective_value / fit_voltage.size))
     grid = np.linspace(
         settings.min_ti_ev,
@@ -141,12 +136,11 @@ def fit_panta_temperature(
         else abs(ti_ev - simple_ti) / max(abs(ti_ev), np.finfo(np.float64).eps)
     )
     tolerance = 0.01 * (settings.max_ti_ev - settings.min_ti_ev)
-    boundary = (
-        ti_ev <= settings.min_ti_ev + tolerance
-        or ti_ev >= settings.max_ti_ev - tolerance
-    )
+    boundary = ti_ev <= settings.min_ti_ev + tolerance or ti_ev >= settings.max_ti_ev - tolerance
     flat = _objective_is_flat(objective_grid)
     messages: list[str] = []
+    if settings.manual_ti_ev is not None:
+        messages.append("T_iを手動指定しています（SSEで一致度を確認してください）")
     if boundary:
         messages.append("T_i最小点が探索境界付近です")
     if flat:

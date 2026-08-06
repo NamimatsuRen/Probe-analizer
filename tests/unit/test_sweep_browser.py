@@ -161,3 +161,4 @@ def test_sweep_browser_displays_excluded_intervals_separately(
         "短い未完了Sweep",
     ]
     assert "満たない" in issue.toolTip(3)
+    assert browser._issues_tree.maximumHeight() == 82  # noqa: SLF001
