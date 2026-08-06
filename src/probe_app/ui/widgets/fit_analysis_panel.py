@@ -3,6 +3,7 @@ from __future__ import annotations
 import pyqtgraph as pg
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -42,6 +43,16 @@ class FitAnalysisPanel(QWidget):
         self._electron_min, self._electron_max = self._range_boxes(20.0, 50.0)
         self._ti_min, self._ti_max = self._range_boxes(0.1, 10.0)
         self._ti_window = self._double_box(0.1, 0.001, 10.0, decimals=3)
+        self._manual_ti_enabled = QCheckBox("T_iを手動指定する")
+        self._manual_ti_enabled.setObjectName("manualTiEnabled")
+        self._manual_ti_enabled.setToolTip(
+            "オンにすると自動最小化を行わず、指定したT_iでモデルとSSEを再評価します。"
+        )
+        self._manual_ti = self._double_box(1.0, 0.001, 100.0, decimals=4)
+        self._manual_ti.setObjectName("manualTiValue")
+        self._manual_ti.setSuffix(" eV")
+        self._manual_ti.setEnabled(False)
+        self._manual_ti.setToolTip("手動指定値です。T_i最小～最大の範囲内に設定してください。")
 
         self._vf_candidates = QComboBox()
         self._vf_candidates.setObjectName("vfCandidateSelection")
@@ -65,8 +76,11 @@ class FitAnalysisPanel(QWidget):
             self._ti_min,
             self._ti_max,
             self._ti_window,
+            self._manual_ti,
         ):
             box.valueChanged.connect(self._mark_pending)
+        self._manual_ti_enabled.toggled.connect(self._manual_ti.setEnabled)
+        self._manual_ti_enabled.toggled.connect(self._mark_pending)
 
         potential_form = QFormLayout()
         potential_form.addRow("log Fit1 最小 [V]", self._fit1_min)
@@ -94,6 +108,8 @@ class FitAnalysisPanel(QWidget):
         temperature_form.addRow("T_i 最小 [eV]", self._ti_min)
         temperature_form.addRow("T_i 最大 [eV]", self._ti_max)
         temperature_form.addRow("Phi左の評価幅 [V]", self._ti_window)
+        temperature_form.addRow(self._manual_ti_enabled)
+        temperature_form.addRow("手動 T_i", self._manual_ti)
         temperature_group = QGroupBox("PANTA T_i model fit")
         temperature_group.setObjectName("temperatureFitControls")
         temperature_group.setLayout(temperature_form)
@@ -107,8 +123,7 @@ class FitAnalysisPanel(QWidget):
         self._run_all_button.setObjectName("runCurrentShotAnalysis")
         self._run_all_button.setEnabled(False)
         self._run_all_button.setToolTip(
-            "現在のFit範囲とSG設定を全Sweepへ適用します。"
-            "V_f/Phi候補はSweepごとに自動選択します。"
+            "現在のFit範囲とSG設定を全Sweepへ適用します。V_f/Phi候補はSweepごとに自動選択します。"
         )
         self._run_all_button.clicked.connect(self._emit_all_request)
 
@@ -127,13 +142,22 @@ class FitAnalysisPanel(QWidget):
         self._objective_plot.setBackground("w")
         self._objective_plot.showGrid(x=True, y=True, alpha=0.2)
         self._objective_plot.setLabel("bottom", "T_i", units="eV")
-        self._objective_plot.setLabel("left", "SSE", units="A²")
+        self._objective_plot.setLabel("left", "残差平方和 (SSE)", units="A²")
         self._objective_plot.setTitle("T_i目的関数 — 未実行")
         self._objective_plot.setMinimumHeight(150)
+
+        self._sse_help = QLabel(
+            "SSEは測定電流とPANTAモデルの差を二乗して足した値です。"
+            "小さいほどモデルが測定値に近く、手動T_iの妥当性確認にも使います。"
+        )
+        self._sse_help.setObjectName("tiSseExplanation")
+        self._sse_help.setWordWrap(True)
+        self._sse_help.setStyleSheet("color: #475467; font-size: 11px;")
 
         result_group = QGroupBox("解析結果・目的関数")
         result_layout = QVBoxLayout(result_group)
         result_layout.addWidget(self._status)
+        result_layout.addWidget(self._sse_help)
         result_layout.addWidget(self._objective_plot)
 
         layout = QVBoxLayout(self)
@@ -176,6 +200,9 @@ class FitAnalysisPanel(QWidget):
                 min_ti_ev=self._ti_min.value(),
                 max_ti_ev=self._ti_max.value(),
                 fit_window_v=self._ti_window.value(),
+                manual_ti_ev=(
+                    self._manual_ti.value() if self._manual_ti_enabled.isChecked() else None
+                ),
             ),
         )
 
@@ -246,8 +273,12 @@ class FitAnalysisPanel(QWidget):
             )
         if result.temperature is not None:
             fit = result.temperature.selected_fit
+            mode = (
+                "手動指定" if result.settings.temperature.manual_ti_ev is not None else "自動最小化"
+            )
             lines.append(
-                f"T_i = {fit.ti_ev:.6g} eV ｜ RMSE = {fit.rmse_a * 1_000:.6g} mA ｜ "
+                f"T_i = {fit.ti_ev:.6g} eV（{mode}）｜ "
+                f"RMSE = {fit.rmse_a * 1_000:.6g} mA ｜ "
                 f"評価点 {fit.fit_point_count}"
             )
         if result.message:
@@ -262,8 +293,7 @@ class FitAnalysisPanel(QWidget):
         self._run_all_button.setEnabled(True)
         self._status.setStyleSheet("color: #b42318;")
         self._status.setText(
-            f"{sweep_id}\n解析できません: {message}\n"
-            "候補・Fit範囲・前処理設定を確認してください。"
+            f"{sweep_id}\n解析できません: {message}\n候補・Fit範囲・前処理設定を確認してください。"
         )
         self._clear_objective()
 
@@ -321,9 +351,7 @@ class FitAnalysisPanel(QWidget):
             combo.blockSignals(True)
             combo.clear()
             selected_candidate = next(
-                candidate
-                for candidate in candidates
-                if candidate.candidate_id == selected_id
+                candidate for candidate in candidates if candidate.candidate_id == selected_id
             )
             combo.addItem(f"自動選択（{selected_candidate.label}）", None)
             for index, candidate in enumerate(candidates):
@@ -353,7 +381,9 @@ class FitAnalysisPanel(QWidget):
             symbolSize=8,
         )
         self._objective_plot.setTitle(
-            f"T_i目的関数 — 最小 {fit.ti_ev:.6g} eV"
+            f"T_i目的関数 — 手動指定 {fit.ti_ev:.6g} eV"
+            if result.settings.temperature.manual_ti_ev is not None
+            else f"T_i目的関数 — 最小 {fit.ti_ev:.6g} eV"
         )
         self._objective_plot.enableAutoRange()
 

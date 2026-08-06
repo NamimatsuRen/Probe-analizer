@@ -76,9 +76,7 @@ class SweepBrowser(QWidget):
 
         self._issues_tree = QTreeWidget()
         self._issues_tree.setObjectName("sweepExclusionBrowser")
-        self._issues_tree.setHeaderLabels(
-            ["sample範囲", "時間範囲 [ms]", "点数", "理由"]
-        )
+        self._issues_tree.setHeaderLabels(["sample範囲", "時間範囲 [ms]", "点数", "理由"])
         self._issues_tree.setAlternatingRowColors(True)
         self._issues_tree.setUniformRowHeights(True)
         self._issues_tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -92,7 +90,8 @@ class SweepBrowser(QWidget):
             self._issues_tree.columnCount() - 1,
             QHeaderView.ResizeMode.Stretch,
         )
-        self._issues_tree.setMaximumHeight(150)
+        self._issues_tree.setMaximumHeight(82)
+        self._issues_tree.setMinimumHeight(54)
         self._issues_tree.hide()
 
         layout = QVBoxLayout(self)
@@ -283,10 +282,7 @@ class SweepBrowser(QWidget):
         for exclusion in self._exclusions:
             item = QTreeWidgetItem(
                 [
-                    (
-                        f"{exclusion.source_start_index:,}"
-                        f"–{exclusion.source_stop_index - 1:,}"
-                    ),
+                    (f"{exclusion.source_start_index:,}–{exclusion.source_stop_index - 1:,}"),
                     (
                         f"{_format_float(exclusion.start_time_s * 1_000.0)}"
                         f" – {_format_float(exclusion.end_time_s * 1_000.0)}"

@@ -77,6 +77,7 @@ class TemperatureSettings:
     min_ti_ev: float = 0.1
     max_ti_ev: float = 10.0
     fit_window_v: float = 0.1
+    manual_ti_ev: float | None = None
     minimum_points: int = 5
     objective_grid_points: int = 161
 
@@ -84,6 +85,11 @@ class TemperatureSettings:
         _validate_range("ti_bounds", self.min_ti_ev, self.max_ti_ev)
         if not math.isfinite(self.fit_window_v) or self.fit_window_v <= 0:
             raise ValueError("fit_window_v must be finite and positive")
+        if self.manual_ti_ev is not None:
+            if not math.isfinite(self.manual_ti_ev) or self.manual_ti_ev <= 0:
+                raise ValueError("manual_ti_ev must be finite and positive")
+            if not self.min_ti_ev <= self.manual_ti_ev <= self.max_ti_ev:
+                raise ValueError("manual_ti_ev must be inside the T_i bounds")
         if self.minimum_points < 3:
             raise ValueError("minimum_points must be at least 3")
         if self.objective_grid_points < 21:
@@ -112,13 +118,14 @@ class AnalysisSettings:
             "log_fit2_min_v": self.potential.log_fit2_min_v,
             "phi_search_max_v": self.potential.phi_search_max_v,
             "phi_search_min_v": self.potential.phi_search_min_v,
-            "selected_phi_candidate_id": (
-                self.potential.selected_phi_candidate_id or "auto"
-            ),
-            "selected_vf_candidate_id": (
-                self.potential.selected_vf_candidate_id or "auto"
-            ),
+            "selected_phi_candidate_id": (self.potential.selected_phi_candidate_id or "auto"),
+            "selected_vf_candidate_id": (self.potential.selected_vf_candidate_id or "auto"),
             "ti_fit_window_v": self.temperature.fit_window_v,
+            "ti_manual_ev": (
+                self.temperature.manual_ti_ev
+                if self.temperature.manual_ti_ev is not None
+                else "auto"
+            ),
             "ti_max_ev": self.temperature.max_ti_ev,
             "ti_min_ev": self.temperature.min_ti_ev,
         }

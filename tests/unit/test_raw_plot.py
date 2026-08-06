@@ -130,6 +130,10 @@ def test_raw_plot_keeps_the_complete_time_range_and_displays_ms(
     bottom_axis = plot._plot.getPlotItem().getAxis("bottom")  # noqa: SLF001
     assert bottom_axis.labelText == "Time"
     assert bottom_axis.labelUnits == "ms"
+    limits = plot._plot.getViewBox().state["limits"]  # noqa: SLF001
+    assert limits["yLimits"][0] <= 0.0
+    assert limits["yLimits"][1] >= 7.0
+    assert plot._zero_line in plot._plot.getPlotItem().items  # noqa: SLF001
 
 
 def test_offset_preview_moves_only_the_current_raw_region(

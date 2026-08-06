@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from PySide6.QtGui import QImage
+from PySide6.QtWidgets import QSizePolicy
+
 from probe_app.domain.models import (
     AnalysisStatus,
     ExportCandidate,
@@ -61,3 +64,17 @@ def test_export_workspace_distinguishes_missing_scope(qtbot: object) -> None:
     assert workspace.candidate_count == 0
     assert "shot未選択" in workspace.scope_text
     assert "Sweep分割が必要" in workspace.scope_text
+
+
+def test_export_preview_does_not_claim_the_image_native_size(qtbot: object) -> None:
+    workspace = ExportWorkspace()
+    qtbot.addWidget(workspace)  # type: ignore[attr-defined]
+    workspace.resize(900, 600)
+    image = QImage(4_000, 3_000, QImage.Format.Format_RGB32)
+    before = workspace.size()
+
+    workspace.show_preview(image)
+
+    assert workspace._preview.sizePolicy().horizontalPolicy() is QSizePolicy.Policy.Ignored  # noqa: SLF001,E501
+    assert workspace._preview.sizePolicy().verticalPolicy() is QSizePolicy.Policy.Ignored  # noqa: SLF001,E501
+    assert workspace.size() == before

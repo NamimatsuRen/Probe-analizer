@@ -47,8 +47,7 @@ def test_potential_analysis_retains_log_and_derivative_candidates() -> None:
     assert log_candidate.value_v == pytest.approx(16.6666667)
     assert log_candidate.status is AnalysisStatus.VALID
     assert any(
-        candidate.method_id == "filtered_derivative_peak"
-        for candidate in potentials.phi_candidates
+        candidate.method_id == "filtered_derivative_peak" for candidate in potentials.phi_candidates
     )
 
 
@@ -82,9 +81,7 @@ def test_panta_temperature_recovers_known_synthetic_ti() -> None:
         r_ratio=2.0,
         k_per_v=0.01,
     )
-    derivative = 1e-3 * (
-        2.0 * 0.01 + np.exp(-voltage / known_ti) / known_ti
-    )
+    derivative = 1e-3 * (2.0 * 0.01 + np.exp(-voltage / known_ti) / known_ti)
     preprocessed = PreprocessedSweep(
         sweep_id="synthetic",
         voltage_v=voltage,
@@ -125,6 +122,48 @@ def test_panta_temperature_recovers_known_synthetic_ti() -> None:
     assert fit.objective_ti_ev.size == fit.objective_sse_a2.size
 
 
+def test_panta_temperature_accepts_manual_ti_and_still_evaluates_sse() -> None:
+    voltage = np.linspace(-1.0, 1.0, 2_001, dtype=np.float64)
+    known_ti = 2.4
+    manual_ti = 3.1
+    current = panta_current(
+        voltage,
+        ti_ev=known_ti,
+        phi_v=0.0,
+        vf_v=-1.0,
+        isat_i_a=1e-3,
+        r_ratio=2.0,
+        k_per_v=0.01,
+    )
+    preprocessed = _preprocessed(voltage, current)
+    saturation = SaturationAnalysis(
+        ion_fit=_line(-1e-6, -1e-3),
+        electron_fit=_line(2e-6, 2e-3),
+        vf_v=-1.0,
+        ion_current_at_vf_a=-1e-3,
+        electron_current_at_vf_a=2e-3,
+        isat_i_a=1e-3,
+        isat_e_a=2e-3,
+        r_ratio=2.0,
+        k_per_v=0.01,
+        status=AnalysisStatus.VALID,
+    )
+
+    fit = fit_panta_temperature(
+        preprocessed,
+        saturation,
+        phi_candidate_id="phi:test",
+        method_id="filtered_log_intersection",
+        phi_v=0.0,
+        settings=TemperatureSettings(fit_window_v=0.1, manual_ti_ev=manual_ti),
+    )
+
+    assert fit.ti_ev == manual_ti
+    assert fit.objective > 0
+    assert fit.status is AnalysisStatus.REVIEW
+    assert "手動指定" in fit.message
+
+
 def test_pipeline_preserves_all_stages_and_partial_quality() -> None:
     result = analyze_preprocessed(_piecewise_preprocessed(), AnalysisSettings())
 
@@ -146,15 +185,22 @@ def test_pipeline_preserves_all_stages_and_partial_quality() -> None:
 
 
 def test_analysis_settings_revision_values_are_stable_and_sorted() -> None:
-    settings = AnalysisSettings(
-        saturation=SaturationSettings(ion_min_v=-40.0, ion_max_v=-20.0)
-    )
+    settings = AnalysisSettings(saturation=SaturationSettings(ion_min_v=-40.0, ion_max_v=-20.0))
 
     revision_values = settings.as_revision_settings()
 
     assert revision_values == tuple(sorted(revision_values))
     assert dict(revision_values)["ion_min_v"] == "-40"
     assert dict(revision_values)["selected_phi_candidate_id"] == "auto"
+    assert dict(revision_values)["ti_manual_ev"] == "auto"
+
+
+def test_manual_ti_is_part_of_analysis_revision() -> None:
+    settings = AnalysisSettings(
+        temperature=TemperatureSettings(manual_ti_ev=1.75),
+    )
+
+    assert dict(settings.as_revision_settings())["ti_manual_ev"] == "1.75"
 
 
 def _piecewise_preprocessed() -> PreprocessedSweep:

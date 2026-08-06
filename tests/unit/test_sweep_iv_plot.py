@@ -42,6 +42,11 @@ def test_iv_plot_uses_voltage_ascending_order_and_required_units(qtbot: object) 
     assert bottom_axis.labelUnits == "V"
     assert left_axis.labelText == "Current"
     assert left_axis.labelUnits == "A"
+    limits = plot._plot.getViewBox().state["limits"]  # noqa: SLF001
+    assert limits["xLimits"] == [-50.0, 50.0]
+    assert limits["yLimits"][0] <= -10.0
+    assert limits["yLimits"][1] >= 20.0
+    assert plot._zero_line in plot._plot.getPlotItem().items  # noqa: SLF001
 
 
 def test_iv_plot_displays_direction_sources_and_acquisition_endpoints(

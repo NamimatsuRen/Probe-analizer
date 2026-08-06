@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QSplitter,
+    QStyle,
     QTabWidget,
     QToolBar,
     QVBoxLayout,
@@ -199,53 +200,29 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._data_browser.series_selected.connect(self._load_series)
         self._role_panel.assignments_changed.connect(self._role_assignments_changed)
-        self._role_panel.bulk_apply_requested.connect(
-            self._bulk_apply_role_assignments
-        )
+        self._role_panel.bulk_apply_requested.connect(self._bulk_apply_role_assignments)
         self._sweep_panel.run_requested.connect(self._start_sweep_split)
         self._sweep_panel.cancel_requested.connect(self._cancel_sweep_split)
-        self._sweep_panel.auto_run_changed.connect(
-            self._auto_sweep_setting_changed
-        )
+        self._sweep_panel.auto_run_changed.connect(self._auto_sweep_setting_changed)
         self._sweep_panel.current_time_offset_preview_changed.connect(
             self._current_time_offset_preview_changed
         )
         self._auto_sweep_timer.timeout.connect(self._run_scheduled_sweep_split)
         self._sweep_browser.sweep_selected.connect(self._sweep_selected)
-        self._preprocessing_panel.run_requested.connect(
-            self._preprocessing_requested
-        )
+        self._preprocessing_panel.run_requested.connect(self._preprocessing_requested)
         self._fit_panel.run_requested.connect(self._full_analysis_requested)
-        self._fit_panel.run_all_requested.connect(
-            self._full_shot_analysis_requested
-        )
-        self._fit_panel.cancel_all_requested.connect(
-            self._cancel_full_shot_analysis
-        )
-        self._summary_workspace.sweep_selected.connect(
-            self._summary_sweep_selected
-        )
+        self._fit_panel.run_all_requested.connect(self._full_shot_analysis_requested)
+        self._fit_panel.cancel_all_requested.connect(self._cancel_full_shot_analysis)
+        self._summary_workspace.sweep_selected.connect(self._summary_sweep_selected)
         self._summary_workspace.open_analysis_requested.connect(
             self._open_summary_sweep_in_analysis
         )
-        self._summary_workspace.exclusion_requested.connect(
-            self._exclude_summary_sweep
-        )
-        self._summary_workspace.restore_requested.connect(
-            self._restore_summary_sweep
-        )
-        self._summary_workspace.scope_changed.connect(
-            self._summary_scope_changed
-        )
-        self._summary_workspace.shot_metadata_changed.connect(
-            self._shot_metadata_changed
-        )
-        self._export_workspace.preview_requested.connect(
-            self._export_preview_requested
-        )
-        self._export_workspace.render_requested.connect(
-            self._export_render_requested
-        )
+        self._summary_workspace.exclusion_requested.connect(self._exclude_summary_sweep)
+        self._summary_workspace.restore_requested.connect(self._restore_summary_sweep)
+        self._summary_workspace.scope_changed.connect(self._summary_scope_changed)
+        self._summary_workspace.shot_metadata_changed.connect(self._shot_metadata_changed)
+        self._export_workspace.preview_requested.connect(self._export_preview_requested)
+        self._export_workspace.render_requested.connect(self._export_render_requested)
         self._render_state()
 
     def _build_layout(self) -> None:
@@ -254,7 +231,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self._role_panel)
         left.setStretchFactor(0, 3)
         left.setStretchFactor(1, 2)
-        left.setSizes([450, 310])
+        left.setSizes([500, 260])
 
         self._data_workspace = QSplitter(Qt.Orientation.Vertical)
         self._data_workspace.setObjectName("dataConfirmationWorkspace")
@@ -272,7 +249,7 @@ class MainWindow(QMainWindow):
         self._lower_workspace.addWidget(self._details_tabs)
         self._lower_workspace.setStretchFactor(0, 2)
         self._lower_workspace.setStretchFactor(1, 1)
-        self._lower_workspace.setSizes([640, 320])
+        self._lower_workspace.setSizes([720, 240])
 
         self._data_workspace.addWidget(self._sweep_iv_plot)
         self._data_workspace.addWidget(self._lower_workspace)
@@ -291,8 +268,8 @@ class MainWindow(QMainWindow):
         content.addWidget(left)
         content.addWidget(self._workspace_tabs)
         content.setStretchFactor(0, 1)
-        content.setStretchFactor(1, 4)
-        content.setSizes([360, 920])
+        content.setStretchFactor(1, 5)
+        content.setSizes([280, 1160])
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -303,13 +280,22 @@ class MainWindow(QMainWindow):
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("ファイル")
+        toolbar.setObjectName("mainActionToolbar")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
         self._open_action = QAction("フォルダを開く", self)
+        self._open_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
+        self._open_action.setStatusTip(
+            "最初にここを押して、測定データが入った親フォルダを選択します"
+        )
+        self._open_action.setToolTip("① 最初に押す：測定データのフォルダを開く（Ctrl/⌘+O）")
         self._open_action.triggered.connect(self._choose_folder)
         toolbar.addAction(self._open_action)
+        open_button = toolbar.widgetForAction(self._open_action)
+        if open_button is not None:
+            open_button.setObjectName("primaryOpenFolderButton")
 
         self._open_project_action = QAction("プロジェクトを開く", self)
         self._open_project_action.triggered.connect(self._choose_project)
@@ -340,9 +326,7 @@ class MainWindow(QMainWindow):
         self._previous_sweep_action = QAction("前のSweep", self)
         self._previous_sweep_action.setShortcut(QKeySequence("Alt+Left"))
         self._previous_sweep_action.setStatusTip("1つ前のSweepを表示します")
-        self._previous_sweep_action.triggered.connect(
-            self._sweep_browser.select_previous
-        )
+        self._previous_sweep_action.triggered.connect(self._sweep_browser.select_previous)
         toolbar.addAction(self._previous_sweep_action)
 
         self._next_sweep_action = QAction("次のSweep", self)
@@ -453,9 +437,7 @@ class MainWindow(QMainWindow):
 
     def open_folder(self, folder: Path) -> None:
         folder_key = str(folder.resolve())
-        self._analysis_catalog = self._analysis_catalog.clear_other_folders(
-            folder_key
-        )
+        self._analysis_catalog = self._analysis_catalog.clear_other_folders(folder_key)
         self._cancel_tasks()
         self._scan_generation += 1
         self._load_generation += 1
@@ -510,9 +492,7 @@ class MainWindow(QMainWindow):
             document = relink_project(document, folder_key)
         known_shots = set(catalog.shots)
         self._project_shot_settings = {
-            item.shot_id: item
-            for item in document.shot_settings
-            if item.shot_id in known_shots
+            item.shot_id: item for item in document.shot_settings if item.shot_id in known_shots
         }
         for settings in self._project_shot_settings.values():
             try:
@@ -529,9 +509,7 @@ class MainWindow(QMainWindow):
                     self._shot_metadata_store.save(folder, metadata)
                 except (OSError, ValueError) as error:
                     LOGGER.warning("Project metadata restore failed: %s", error)
-        self._analysis_catalog = document.analysis_catalog.clear_other_folders(
-            folder_key
-        )
+        self._analysis_catalog = document.analysis_catalog.clear_other_folders(folder_key)
         self._audit_trail = document.audit_trail
         self._append_audit(
             AuditAction.PROJECT_LOAD,
@@ -627,9 +605,7 @@ class MainWindow(QMainWindow):
 
         valid_ids = {descriptor.series_id for descriptor in descriptors}
         valid_items = tuple(
-            assignment
-            for assignment in assignments.items
-            if assignment.series_id in valid_ids
+            assignment for assignment in assignments.items if assignment.series_id in valid_ids
         )
         if len(valid_items) != len(assignments.items):
             assignments = SeriesRoleAssignments(valid_items)
@@ -647,9 +623,7 @@ class MainWindow(QMainWindow):
                     sample_stop=split.sample_stop,
                 )
             )
-            self._sweep_panel.set_current_time_offset_s(
-                split.current_time_offset_s
-            )
+            self._sweep_panel.set_current_time_offset_s(split.current_time_offset_s)
         self._render_sweep_panel()
         if warning:
             self._role_panel.set_persistence_status(warning, error=True)
@@ -695,12 +669,7 @@ class MainWindow(QMainWindow):
         folder = self._state.folder
         shot_id = self._state.role_assignment_shot_id
         assignments = self._state.role_assignments
-        if (
-            catalog is None
-            or folder is None
-            or shot_id is None
-            or not assignments.is_complete
-        ):
+        if catalog is None or folder is None or shot_id is None or not assignments.is_complete:
             self._role_panel.set_persistence_status(
                 "currentとsweep voltageを選択してから一括適用してください。",
                 error=True,
@@ -733,22 +702,16 @@ class MainWindow(QMainWindow):
                     target.shot_id,
                     error,
                 )
-                save_failures.append(
-                    f"{target.shot_id}: 設定を保存できませんでした"
-                )
+                save_failures.append(f"{target.shot_id}: 設定を保存できませんでした")
                 continue
             saved_count += 1
 
-        skipped = [
-            f"{failure.shot_id}: {failure.reason}"
-            for failure in result.failures
-        ]
+        skipped = [f"{failure.shot_id}: {failure.reason}" for failure in result.failures]
         skipped.extend(save_failures)
         if skipped:
             message = (
                 f"{saved_count} shotへ一括適用しました。"
-                f"{len(skipped)} shotは変更していません。\n"
-                + "\n".join(skipped)
+                f"{len(skipped)} shotは変更していません。\n" + "\n".join(skipped)
             )
         else:
             message = f"{saved_count} shotへ一括適用しました"
@@ -851,16 +814,11 @@ class MainWindow(QMainWindow):
         self._thread_pool.start(task)
 
     def _sweep_split_succeeded(self, generation: int, result_object: object) -> None:
-        if (
-            generation != self._sweep_generation
-            or not isinstance(result_object, SweepSplitResult)
-        ):
+        if generation != self._sweep_generation or not isinstance(result_object, SweepSplitResult):
             return
         self._sweep_task = None
         self._raw_plot.clear_current_time_offset_preview()
-        self._sweep_panel.mark_current_time_offset_applied(
-            result_object.current_time_offset_s
-        )
+        self._sweep_panel.mark_current_time_offset_applied(result_object.current_time_offset_s)
         self._state = self._state.apply_sweep_result(
             result_object.sweeps,
             interpolated_current=result_object.interpolated_current,
@@ -869,19 +827,14 @@ class MainWindow(QMainWindow):
         if self._project_records_to_restore:
             self._state = replace(
                 self._state,
-                analysis_results=AnalysisResultStore(
-                    self._project_records_to_restore
-                ),
+                analysis_results=AnalysisResultStore(self._project_records_to_restore),
             )
             self._project_records_to_restore = ()
         if self._pending_project_sweep_id is not None:
             if any(
-                sweep.sweep_id == self._pending_project_sweep_id
-                for sweep in self._state.sweeps
+                sweep.sweep_id == self._pending_project_sweep_id for sweep in self._state.sweeps
             ):
-                self._state = self._state.select_sweep(
-                    self._pending_project_sweep_id
-                )
+                self._state = self._state.select_sweep(self._pending_project_sweep_id)
             self._pending_project_sweep_id = None
         interpolation = (
             "currentをSweep電圧の時間軸へ補間しました"
@@ -889,10 +842,7 @@ class MainWindow(QMainWindow):
             else "2系列の時間軸は一致しています"
         )
         offset_ms = result_object.current_time_offset_s * 1_000.0
-        offset_description = (
-            f"current時間補正: {offset_ms:+.6f} ms"
-            "（+: 後ろのcurrentを参照）"
-        )
+        offset_description = f"current時間補正: {offset_ms:+.6f} ms（+: 後ろのcurrentを参照）"
         self._render_sweep_panel(details=f"{interpolation} / {offset_description}")
         self._status.set_status(self._state.status, self._state.sweep_message)
         self._render_actions()
@@ -954,9 +904,7 @@ class MainWindow(QMainWindow):
             return
         if self._state.selected_sweep_id == sweep_id:
             return
-        sweep = next(
-            sweep for sweep in self._state.sweeps if sweep.sweep_id == sweep_id
-        )
+        sweep = next(sweep for sweep in self._state.sweeps if sweep.sweep_id == sweep_id)
         self._sweep_selected(sweep)
 
     def _open_summary_sweep_in_analysis(self, sweep_id: str) -> None:
@@ -1006,9 +954,7 @@ class MainWindow(QMainWindow):
             None,
         )
         if sweep is None:
-            self._summary_workspace.show_exclusion_error(
-                "対象Sweepが現在のshotにありません。"
-            )
+            self._summary_workspace.show_exclusion_error("対象Sweepが現在のshotにありません。")
             return None
         try:
             return self._build_analysis_revision(
@@ -1036,9 +982,7 @@ class MainWindow(QMainWindow):
             return
         selected_sweep = self._state.selected_sweep
         if selected_sweep is None:
-            self._preprocessing_panel.clear(
-                "Sweepを選択してから前処理を実行してください"
-            )
+            self._preprocessing_panel.clear("Sweepを選択してから前処理を実行してください")
             return
         self._apply_preprocessing(selected_sweep, settings_object)
 
@@ -1078,18 +1022,12 @@ class MainWindow(QMainWindow):
                 )
             )
             self._state, _ = self._state.record_analysis_if_current(record, revision)
-            self._analysis_sweep_iv_plot.clear_preprocessing(
-                "dI/dV — 設定を確認してください"
-            )
+            self._analysis_sweep_iv_plot.clear_preprocessing("dI/dV — 設定を確認してください")
             self._preprocessing_panel.show_error(sweep.sweep_id, str(error))
             self._render_analysis_workspace()
             return
 
-        status = (
-            AnalysisStatus.REVIEW
-            if result.spacing_warning
-            else AnalysisStatus.VALID
-        )
+        status = AnalysisStatus.REVIEW if result.spacing_warning else AnalysisStatus.VALID
         outcome = MethodOutcome(
             method_id="savitzky_golay",
             status=status,
@@ -1158,9 +1096,7 @@ class MainWindow(QMainWindow):
             self._state, _ = self._state.record_analysis_if_current(record, revision)
             self._preprocessing_panel.show_error(sweep.sweep_id, message)
             self._fit_panel.show_error(sweep.sweep_id, message)
-            self._analysis_sweep_iv_plot.clear_preprocessing(
-                "dI/dV — 前処理設定を確認してください"
-            )
+            self._analysis_sweep_iv_plot.clear_preprocessing("dI/dV — 前処理設定を確認してください")
             self._render_analysis_workspace()
             return
 
@@ -1171,9 +1107,7 @@ class MainWindow(QMainWindow):
             record = record.with_stage_result(
                 stage_result,
                 overall_status=(
-                    complete.status
-                    if index == len(complete.stage_results) - 1
-                    else None
+                    complete.status if index == len(complete.stage_results) - 1 else None
                 ),
             )
         self._state, _ = self._state.record_analysis_if_current(record, revision)
@@ -1242,9 +1176,8 @@ class MainWindow(QMainWindow):
         completed: int,
         total: int,
     ) -> None:
-        if (
-            generation != self._analysis_generation
-            or not isinstance(output_object, AnalysisBatchOutput)
+        if generation != self._analysis_generation or not isinstance(
+            output_object, AnalysisBatchOutput
         ):
             return
         output = output_object
@@ -1259,9 +1192,7 @@ class MainWindow(QMainWindow):
             and output.complete is not None
         ):
             self._preprocessing_panel.show_result(output.complete.preprocessed)
-            self._analysis_sweep_iv_plot.show_preprocessing(
-                output.complete.preprocessed
-            )
+            self._analysis_sweep_iv_plot.show_preprocessing(output.complete.preprocessed)
             self._fit_panel.show_result(output.complete)
             self._analysis_sweep_iv_plot.show_analysis_result(output.complete)
         self._fit_panel.show_batch_progress(
@@ -1275,9 +1206,7 @@ class MainWindow(QMainWindow):
             self._analysis_workspace.render_state(
                 selected,
                 (
-                    self._state.analysis_results.latest_for_sweep(
-                        selected.sweep_id
-                    )
+                    self._state.analysis_results.latest_for_sweep(selected.sweep_id)
                     if selected is not None
                     else None
                 ),
@@ -1324,11 +1253,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _preprocessing_stage(result: PreprocessedSweep) -> StageResult:
-        status = (
-            AnalysisStatus.REVIEW
-            if result.spacing_warning
-            else AnalysisStatus.VALID
-        )
+        status = AnalysisStatus.REVIEW if result.spacing_warning else AnalysisStatus.VALID
         outcome = MethodOutcome(
             method_id="savitzky_golay",
             status=status,
@@ -1361,14 +1286,10 @@ class MainWindow(QMainWindow):
         current = self._state.role_assignments.for_role(SeriesRole.CURRENT)
         voltage = self._state.role_assignments.for_role(SeriesRole.SWEEP_VOLTAGE)
         if folder is None or shot_id is None or current is None or voltage is None:
-            raise ValueError(
-                "フォルダ・shot・current・sweep voltageの入力条件を確定できません"
-            )
+            raise ValueError("フォルダ・shot・current・sweep voltageの入力条件を確定できません")
         split = self._sweep_panel.parameters()
         fit_settings = (
-            analysis_settings
-            if analysis_settings is not None
-            else self._fit_panel.settings()
+            analysis_settings if analysis_settings is not None else self._fit_panel.settings()
         )
         return AnalysisInputRevision(
             folder_key=str(folder.resolve()),
@@ -1397,7 +1318,7 @@ class MainWindow(QMainWindow):
                 polyorder=settings.polyorder,
             ),
             fit_settings=fit_settings.as_revision_settings(),
-            algorithm_version="level6-panta-v1",
+            algorithm_version="level6-panta-v2-manual-ti",
             generation_id=self._sweep_generation,
         )
 
@@ -1488,28 +1409,17 @@ class MainWindow(QMainWindow):
         )
         self._reload_action.setEnabled(self._state.folder is not None and not busy)
         self._open_project_action.setEnabled(not busy)
-        self._save_project_action.setEnabled(
-            self._state.folder is not None and not busy
-        )
-        self._save_project_as_action.setEnabled(
-            self._state.folder is not None and not busy
-        )
+        self._save_project_action.setEnabled(self._state.folder is not None and not busy)
+        self._save_project_as_action.setEnabled(self._state.folder is not None and not busy)
         self._cancel_action.setEnabled(busy)
-        self._previous_sweep_action.setEnabled(
-            not busy and self._sweep_browser.can_select_previous
-        )
-        self._next_sweep_action.setEnabled(
-            not busy and self._sweep_browser.can_select_next
-        )
+        self._previous_sweep_action.setEnabled(not busy and self._sweep_browser.can_select_previous)
+        self._next_sweep_action.setEnabled(not busy and self._sweep_browser.can_select_next)
 
     def _render_sweep_panel(self, *, details: str | None = None) -> None:
         self._sweep_panel.render_state(
             self._state.sweep_status,
             self._state.sweep_message,
-            ready=(
-                self._state.catalog is not None
-                and self._state.role_assignments.is_complete
-            ),
+            ready=(self._state.catalog is not None and self._state.role_assignments.is_complete),
             details=self._state.sweep_error if details is None else details,
         )
         self._sweep_browser.render_state(
@@ -1521,33 +1431,22 @@ class MainWindow(QMainWindow):
         selected_sweep = self._state.selected_sweep
         if self._state.sweeps and selected_sweep is not None:
             browser_selection = self._sweep_browser.selected_sweep
-            if (
-                browser_selection is None
-                or browser_selection.sweep_id != selected_sweep.sweep_id
-            ):
+            if browser_selection is None or browser_selection.sweep_id != selected_sweep.sweep_id:
                 self._sweep_browser.select_sweep(selected_sweep.sweep_id)
             highlighted_sweep = self._raw_plot.highlighted_sweep
-            if (
-                highlighted_sweep is None
-                or highlighted_sweep.sweep_id != selected_sweep.sweep_id
-            ):
+            if highlighted_sweep is None or highlighted_sweep.sweep_id != selected_sweep.sweep_id:
                 self._raw_plot.highlight_sweep(selected_sweep)
             plotted_sweep = self._sweep_iv_plot.selected_sweep
             if plotted_sweep is None or plotted_sweep.sweep_id != selected_sweep.sweep_id:
                 self._sweep_iv_plot.show_sweep(selected_sweep)
             analysis_sweep = self._analysis_sweep_iv_plot.selected_sweep
-            if (
-                analysis_sweep is None
-                or analysis_sweep.sweep_id != selected_sweep.sweep_id
-            ):
+            if analysis_sweep is None or analysis_sweep.sweep_id != selected_sweep.sweep_id:
                 self._analysis_sweep_iv_plot.show_sweep(selected_sweep)
             preprocessed = self._preprocessing_panel.result
             if preprocessed is None or preprocessed.sweep_id != selected_sweep.sweep_id:
                 self._preprocessing_panel.select_sweep(selected_sweep.sweep_id)
                 self._fit_panel.select_sweep(selected_sweep.sweep_id)
-                self._analysis_sweep_iv_plot.clear_preprocessing(
-                    "dI/dV — 前処理を実行してください"
-                )
+                self._analysis_sweep_iv_plot.clear_preprocessing("dI/dV — 前処理を実行してください")
             elif self._analysis_sweep_iv_plot.preprocessed is not preprocessed:
                 self._analysis_sweep_iv_plot.show_preprocessing(preprocessed)
         else:
@@ -1635,8 +1534,8 @@ class MainWindow(QMainWindow):
         if settings is not None:
             for sweep in self._state.sweeps:
                 try:
-                    current_revisions[sweep.sweep_id] = (
-                        self._build_analysis_revision(sweep, settings)
+                    current_revisions[sweep.sweep_id] = self._build_analysis_revision(
+                        sweep, settings
                     )
                 except ValueError:
                     break
@@ -1654,11 +1553,7 @@ class MainWindow(QMainWindow):
         )
         self._current_summary_snapshot = snapshot
         current_metadata = next(
-            (
-                metadata
-                for metadata in shot_metadata
-                if metadata.shot_id == shot_id
-            ),
+            (metadata for metadata in shot_metadata if metadata.shot_id == shot_id),
             ShotMetadata(folder_key=folder_key, shot_id=shot_id),
         )
         self._analysis_catalog = self._analysis_catalog.put(
@@ -1685,10 +1580,7 @@ class MainWindow(QMainWindow):
         catalog = self._state.catalog
         if catalog is None:
             return ()
-        return tuple(
-            self._shot_metadata_store.load(folder, shot_id)
-            for shot_id in catalog.shots
-        )
+        return tuple(self._shot_metadata_store.load(folder, shot_id) for shot_id in catalog.shots)
 
     def _shot_metadata_changed(self, metadata_object: object) -> None:
         folder = self._state.folder
@@ -1708,9 +1600,7 @@ class MainWindow(QMainWindow):
                 f"位置metadataを保存できませんでした: {error}"
             )
             return
-        self._analysis_catalog = self._analysis_catalog.update_metadata(
-            metadata_object
-        )
+        self._analysis_catalog = self._analysis_catalog.update_metadata(metadata_object)
         self._append_audit(
             AuditAction.METADATA_UPDATE,
             metadata_object.shot_id,
@@ -1746,9 +1636,7 @@ class MainWindow(QMainWindow):
                     points_per_cycle=parameters.points_per_cycle,
                     sample_start=parameters.sample_start,
                     sample_stop=parameters.sample_stop,
-                    current_time_offset_s=(
-                        self._sweep_panel.current_time_offset_s()
-                    ),
+                    current_time_offset_s=(self._sweep_panel.current_time_offset_s()),
                 )
             shot_settings.append(ProjectShotSettings(shot_id, assignments, split))
         self._append_audit(
@@ -1852,8 +1740,7 @@ class MainWindow(QMainWindow):
             ),
         )
         self._export_workspace.show_exported(
-            f"Export完了: {len(result.artifacts)} files ｜ "
-            f"manifest {result.manifest_id[:12]}…"
+            f"Export完了: {len(result.artifacts)} files ｜ manifest {result.manifest_id[:12]}…"
         )
 
     def _prepare_export(
@@ -1877,11 +1764,7 @@ class MainWindow(QMainWindow):
                 else ()
             )
             sweep = next(
-                (
-                    item
-                    for item in self._state.sweeps
-                    if item.sweep_id in selected_ids
-                ),
+                (item for item in self._state.sweeps if item.sweep_id in selected_ids),
                 self._state.selected_sweep,
             )
             if sweep is None:

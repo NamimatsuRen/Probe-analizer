@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 from probe_app.domain.models.raw_series import RawSeries
 from probe_app.domain.models.sweep import Sweep, SweepDirection
 from probe_app.ui.downsampling import min_max_downsample
+from probe_app.ui.plot_policy import add_zero_reference, constrain_y_to_data
 
 
 class RawPlot(QWidget):
@@ -17,6 +18,7 @@ class RawPlot(QWidget):
         self._sweep_region: pg.LinearRegionItem | None = None
         self._displayed_series_id: str | None = None
         self._preview_current_time_offset_s: float | None = None
+        self._zero_line: pg.InfiniteLine | None = None
 
         self._selection_info = QLabel()
         self._selection_info.setObjectName("rawSweepSelectionInfo")
@@ -35,6 +37,7 @@ class RawPlot(QWidget):
         self._plot.setLabel("left", "Signal")
         self._plot.getPlotItem().setMenuEnabled(True)
         self._plot.getViewBox().setMouseMode(pg.ViewBox.RectMode)
+        self._zero_line = add_zero_reference(self._plot)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -91,6 +94,7 @@ class RawPlot(QWidget):
         self.clear_sweep_highlight()
         self._displayed_series_id = None
         self._plot.clear()
+        self._zero_line = add_zero_reference(self._plot)
         self._plot.setTitle(message)
 
     def show_series(self, series: RawSeries) -> None:
@@ -98,6 +102,7 @@ class RawPlot(QWidget):
         x, y = min_max_downsample(series.time_s, series.values)
         x_ms = x * 1_000.0
         self._plot.clear()
+        self._zero_line = add_zero_reference(self._plot)
         self._sweep_region = None
         self._plot.plot(
             x_ms,
@@ -113,6 +118,7 @@ class RawPlot(QWidget):
             units=series.descriptor.value_unit or None,
         )
         self._plot.enableAutoRange()
+        constrain_y_to_data(self._plot, (y,))
         self._update_selection_info()
         self._draw_sweep_highlight()
 
